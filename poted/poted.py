@@ -36,6 +36,8 @@ class PoTED:
             if tensor_builder is not None
             else TensorBuilder(Lw=Lw, Le=Le, Lu=Lu, device=device, reporter=reporter)
         )
+        self._last_stream_hash = None
+        self._last_dict_hash = None
     def _override(self, serializer=None, tokenizer=None, decoder=None, tensor_builder=None, reporter=None, **config):
         from contextlib import contextmanager
 
@@ -151,10 +153,31 @@ class PoTED:
         with self._override(serializer, tokenizer, decoder, tensor_builder, reporter, **config):
             try:
                 tokens = self._tensor_builder.to_tokens(tensor)
+                from .validator import ProtocolValidator
+                ProtocolValidator.validate(tokens)
+                from .control import ControlToken
+                resets = sum(1 for t in tokens if t == int(ControlToken.RST))
+                self._reporter.report(
+                    'sync_resets',
+                    'Number of decoder synchronisation resets',
+                    max(0, resets - 1),
+                )
+                from .integrity import IntegrityChecker
+                checker = IntegrityChecker(self._reporter)
+                stream_hash = checker.hash_stream(tokens)
+                if self._last_stream_hash is not None and stream_hash != self._last_stream_hash:
+                    from .errors import SyncError
+                    raise SyncError('Stream hash mismatch')
                 stream = self._decoder.decode(tokens)
                 obj = self._serializer.deserialize(stream)
                 if self._mode == 'portable' and isinstance(obj, dict) and 'payload' in obj:
                     obj = obj['payload']
+                from types import SimpleNamespace
+                mapping = {seq: token for token, seq in self._decoder._rev_dict.items()}
+                dict_hash = checker.hash_dictionary(SimpleNamespace(_dict=mapping))
+                if self._last_dict_hash is not None and dict_hash != self._last_dict_hash:
+                    from .errors import DictionaryMismatch
+                    raise DictionaryMismatch('Dictionary hash mismatch')
             except Exception:
                 count = self._reporter.report('roundtrip_failures') or 0
                 self._reporter.report(
@@ -168,5 +191,27 @@ class PoTED:
             return obj
     def __call__(self, obj, *, serializer=None, tokenizer=None, decoder=None, tensor_builder=None, reporter=None, **config):
         with self._override(serializer, tokenizer, decoder, tensor_builder, reporter, **config):
-            tensor = self.encode(obj)
+            stream = self._serializer.serialize(obj)
+            from .control import ControlToken
+            self._tokenizer._manager.reset()
+            payload = self._tokenizer.encode(stream)
+            tokens = [int(ControlToken.BOS), int(ControlToken.RST), int(ControlToken.SYNC)]
+            tokens.extend(int(t) for t in payload)
+            tokens.append(int(ControlToken.EOS))
+            from .integrity import IntegrityChecker
+            checker = IntegrityChecker(self._reporter)
+            self._last_stream_hash = checker.hash_stream(tokens)
+            self._last_dict_hash = checker.hash_dictionary(self._tokenizer._manager)
+            tensor = self._tensor_builder.to_tensor(tokens)
+            total = len(tokens)
+            ratio = len(tokens) / len(stream) if stream else 0
+            self._reporter.report('total_tokens', 'Total number of tokens', total)
+            self._reporter.report('compression_ratio', 'Token count to byte length ratio', ratio)
+            self._reporter.report(
+                'tensor_shape',
+                'Shape of tensor produced by TensorBuilder',
+                list(tensor.shape),
+            )
+            count = self._reporter.report('encode_calls') or 0
+            self._reporter.report('encode_calls', 'Number of encode operations', count + 1)
         return tensor
