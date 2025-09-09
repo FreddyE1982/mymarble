@@ -12,7 +12,7 @@ class TestDictionaryPersistence(unittest.TestCase):
         main.Reporter._metrics = {}
 
     def test_volatile_reset(self):
-        tokenizer = StreamingTokenizer(main.Reporter, max_word_length=8, mode='volatile')
+        tokenizer = StreamingTokenizer(main.Reporter, max_word_length=8)
         stream = [65, 66, 65, 66]
         tokenizer.tokenize(stream)
         size_first = main.Reporter.report('dictionary_size')
@@ -24,7 +24,7 @@ class TestDictionaryPersistence(unittest.TestCase):
         self.assertEqual(size_second, size_first)
 
     def test_persistent_keeps_dictionary(self):
-        tokenizer = StreamingTokenizer(main.Reporter, max_word_length=8, mode='persistent')
+        tokenizer = StreamingTokenizer(main.Reporter, max_word_length=8, persistent=True)
         stream = [65, 66, 65, 66]
         tokenizer.tokenize(stream)
         size_before = main.Reporter.report('dictionary_size')
