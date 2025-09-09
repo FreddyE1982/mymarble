@@ -1,3 +1,7 @@
+import torch
+import types
+
+
 class Reporter:
     _metrics = {}
 
@@ -321,6 +325,8 @@ class TensorLoadBalancer(Scheduler):
             dev_key = getattr(tensor, 'device_type', None)
         if dev_key is None:
             raise AttributeError('Tensor device not specified')
+        if not isinstance(dev_key, str):
+            dev_key = getattr(dev_key, 'type', dev_key)
         device = self.devices[dev_key] if isinstance(dev_key, str) else dev_key
         block = device.allocate(size)
         self._registry[tid] = {'device': device, 'block': block, 'size': size}
@@ -381,6 +387,28 @@ class TensorLoadBalancer(Scheduler):
             Reporter.report(f'{name}_idle_time', f'Idle time on {name}', idle)
             Reporter.report(f'{name}_timeline', f'Execution timeline on {name}', timelines[name])
         return time
+
+
+def patch_tensor_registration(balancer):
+    original_new = torch.Tensor.__new__
+
+    def wrapped_new(cls, *args, **kwargs):
+        tensor = original_new(cls, *args, **kwargs)
+        if not balancer.isRegistered(tensor):
+            balancer.register(tensor)
+
+        def unregister(self):
+            balancer.unregister(self)
+
+        def isRegistered(self):
+            return balancer.isRegistered(self)
+
+        tensor.unregister = types.MethodType(unregister, tensor)
+        tensor.isRegistered = types.MethodType(isRegistered, tensor)
+        return tensor
+
+    torch.Tensor.__new__ = wrapped_new
+    return original_new
 
 
 class Application:
