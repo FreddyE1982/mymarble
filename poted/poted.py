@@ -67,6 +67,7 @@ class PoTED:
                 'Le': getattr(self._tensor_builder, '_Le', None),
                 'Lu': getattr(self._tensor_builder, '_Lu', None),
             }
+            override_reporters = {}
             try:
                 if serializer is not None:
                     self._serializer = serializer
@@ -81,8 +82,10 @@ class PoTED:
                     self._reporter = reporter
                     self._tokenizer._manager._reporter = reporter
                     if hasattr(self._decoder, '_reporter'):
+                        override_reporters[self._decoder] = self._decoder._reporter
                         self._decoder._reporter = reporter
                     if hasattr(self._tensor_builder, '_reporter'):
+                        override_reporters[self._tensor_builder] = self._tensor_builder._reporter
                         self._tensor_builder._reporter = reporter
                 if 'mode' in config:
                     self._mode = config['mode']
@@ -116,6 +119,9 @@ class PoTED:
                     self._decoder._reporter = original['reporter']
                 if hasattr(self._tensor_builder, '_reporter'):
                     self._tensor_builder._reporter = original['reporter']
+                for obj, rep in override_reporters.items():
+                    if hasattr(obj, '_reporter'):
+                        obj._reporter = rep
         return manager()
     def _instantiate_reporter(self, reporter):
         if reporter is None:
