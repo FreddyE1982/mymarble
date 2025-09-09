@@ -11,16 +11,43 @@ class JsonSerializer:
 
 
 class TensorBuilder:
-    def __init__(self, reporter=None):
+    PAD = -5
+
+    def __init__(self, Lw=0, Le=0, Lu=0, reporter=None):
+        self._Lw = Lw
+        self._Le = Le
+        self._Lu = Lu
         self._reporter = reporter
 
     def to_tensor(self, tokens):
         import torch
-        tensor = torch.tensor(tokens, dtype=torch.int64)
+        sequences = tokens if tokens and isinstance(tokens[0], list) else [tokens]
+        L = self._Lw + self._Le + self._Lu
+        if L <= 0:
+            L = max((len(seq) for seq in sequences), default=0)
+        padded = []
+        for seq in sequences:
+            if len(seq) < L:
+                seq = seq + [self.PAD] * (L - len(seq))
+            else:
+                seq = seq[:L]
+            padded.append(seq)
+        tensor = torch.tensor(padded, dtype=torch.int64)
+        if self._reporter:
+            self._reporter.report(
+                'tensor_shape',
+                'Shape of tensor produced by TensorBuilder',
+                list(tensor.shape),
+            )
         return tensor
 
     def to_tokens(self, tensor):
-        return [int(x) for x in tensor.tolist()]
+        tokens = []
+        for row in tensor.tolist():
+            for x in row:
+                if x != self.PAD:
+                    tokens.append(int(x))
+        return tokens
 
 
 class PoTEDPipeline:
