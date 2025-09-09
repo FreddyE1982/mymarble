@@ -15,6 +15,7 @@ class TestEvictionPolicies(unittest.TestCase):
         device.allocate(80)
         with self.assertRaises(main.DeviceCapacityExceeded):
             device.allocate(50)
+        print('Drop metrics:', main.Reporter.report(['VRAM_used', 'evictions']))
         self.assertEqual(device.used, 30)
         self.assertEqual(main.Reporter.report('evictions'), 1)
 
@@ -23,6 +24,7 @@ class TestEvictionPolicies(unittest.TestCase):
         device.allocate(80)
         with self.assertRaises(main.DeviceCapacityExceeded):
             device.allocate(50)
+        print('Remap metrics:', main.Reporter.report(['VRAM_used', 'VRAM_reserved', 'remaps']))
         self.assertEqual(device.used, 30)
         self.assertEqual(device.reserved, 50)
         self.assertEqual(main.Reporter.report('remaps'), 1)

@@ -93,45 +93,127 @@ class MemoryDevice:
 
 
 class Operation:
-    def __init__(self, name, memory_requirement, duration, device):
+    def __init__(self, name, memory_requirement, duration, device_types):
         self.name = name
-        self.memory_requirement = memory_requirement
         self.duration = duration
-        self.device = device
+        if isinstance(device_types, str):
+            device_types = [device_types]
+        self.device_types = device_types
+        if isinstance(memory_requirement, int):
+            self.memory_requirements = {
+                dt: memory_requirement for dt in device_types
+            }
+        elif isinstance(memory_requirement, dict):
+            missing = set(device_types) - set(memory_requirement)
+            if missing:
+                raise ValueError(f'Missing memory requirements for devices: {missing}')
+            self.memory_requirements = memory_requirement
+        else:
+            raise TypeError('memory_requirement must be int or dict')
 
-    def execute(self):
-        self.device.allocate(self.memory_requirement)
-        self.device.free(self.memory_requirement)
+    def allocate(self, devices):
+        allocated = []
+        try:
+            for dt, amount in self.memory_requirements.items():
+                devices[dt].allocate(amount)
+                allocated.append(dt)
+        except (DeviceBudgetExceeded, DeviceCapacityExceeded):
+            for dt in allocated:
+                devices[dt].free(self.memory_requirements[dt])
+            raise
+
+    def free(self, devices):
+        for dt, amount in self.memory_requirements.items():
+            devices[dt].free(amount)
 
 
 class Scheduler:
-    def __init__(self, device):
-        self.device = device
+    def __init__(self, devices):
+        if isinstance(devices, MemoryDevice):
+            devices = [devices]
+        self.devices = {d.name: d for d in devices}
+        self.queues = {name: [] for name in self.devices}
 
     def run(self, operations):
         time = 0
+        busy = {name: 0 for name in self.devices}
+        timelines = {name: [] for name in self.devices}
         for op in operations:
             try:
-                op.execute()
+                start = time
+                op.allocate(self.devices)
                 time += op.duration
+                op.free(self.devices)
+                for dt in op.device_types:
+                    timelines[dt].append((start, time))
+                    busy[dt] += op.duration
             except DeviceBudgetExceeded:
                 count = Reporter.report('budget_exceeded') or 0
                 Reporter.report('budget_exceeded', 'Number of operations exceeding budget', count + 1)
                 raise
         Reporter.report('makespan', 'Total execution time', time)
+        for name in self.devices:
+            idle = time - busy[name]
+            Reporter.report(f'{name}_idle_time', f'Idle time on {name}', idle)
+            Reporter.report(f'{name}_timeline', f'Execution timeline on {name}', timelines[name])
+        return time
+
+    def run_parallel(self, operations):
+        self.queues = {name: [] for name in self.devices}
+        for op in operations:
+            for dt in op.device_types:
+                self.queues[dt].append(op)
+        time = 0
+        ready = operations[:]
+        in_progress = []
+        timelines = {name: [] for name in self.devices}
+        busy = {name: 0 for name in self.devices}
+        while ready or in_progress:
+            started = []
+            for op in list(ready):
+                if all(self.devices[dt].available() >= op.memory_requirements[dt] for dt in op.device_types):
+                    try:
+                        op.allocate(self.devices)
+                    except DeviceBudgetExceeded:
+                        count = Reporter.report('budget_exceeded') or 0
+                        Reporter.report('budget_exceeded', 'Number of operations exceeding budget', count + 1)
+                        raise
+                    op.remaining = op.duration
+                    op.start_time = time
+                    in_progress.append(op)
+                    ready.remove(op)
+            time += 1
+            completed = []
+            for op in in_progress:
+                op.remaining -= 1
+                if op.remaining == 0:
+                    op.free(self.devices)
+                    for dt in op.device_types:
+                        timelines[dt].append((op.start_time, time))
+                        busy[dt] += op.duration
+                        self.queues[dt].remove(op)
+                    completed.append(op)
+            for op in completed:
+                in_progress.remove(op)
+        Reporter.report('makespan', 'Total execution time', time)
+        for name in self.devices:
+            idle = time - busy[name]
+            Reporter.report(f'{name}_idle_time', f'Idle time on {name}', idle)
+            Reporter.report(f'{name}_timeline', f'Execution timeline on {name}', timelines[name])
         return time
 
 
 class Application:
     def run(self):
-        gpu = MemoryDevice('VRAM', 1024)
+        gpu = MemoryDevice('GPU', 1024)
+        cpu = MemoryDevice('CPU', 2048)
         ops = [
-            Operation('op1', 256, 1, gpu),
-            Operation('op2', 512, 2, gpu),
+            Operation('op1', 256, 3, 'GPU'),
+            Operation('op2', 256, 3, 'CPU'),
         ]
-        scheduler = Scheduler(gpu)
-        scheduler.run(ops)
-        print('Metrics:', Reporter.report(['VRAM_used', 'makespan']))
+        scheduler = Scheduler([gpu, cpu])
+        scheduler.run_parallel(ops)
+        print('Metrics:', Reporter.report(['GPU_used', 'CPU_used', 'makespan']))
 
 
 if __name__ == '__main__':
