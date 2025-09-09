@@ -30,7 +30,9 @@ class PoTED:
             else StreamingTokenizer(reporter=reporter, max_word_length=Lw, persistent=persistent)
         )
         self._tokenizer._manager = self._dictionary
-        self._decoder = decoder if decoder is not None else StreamingDecoder(reporter)
+        self._decoder = (
+            decoder if decoder is not None else StreamingDecoder(reporter, persistent=persistent)
+        )
         self._tensor_builder = (
             tensor_builder
             if tensor_builder is not None
@@ -195,7 +197,10 @@ class PoTED:
             from .control import ControlToken
             self._tokenizer._manager.reset()
             payload = self._tokenizer.encode(stream)
-            tokens = [int(ControlToken.BOS), int(ControlToken.RST), int(ControlToken.SYNC)]
+            tokens = [int(ControlToken.BOS)]
+            if self._dictionary._mode != 'persistent':
+                tokens.append(int(ControlToken.RST))
+            tokens.append(int(ControlToken.SYNC))
             tokens.extend(int(t) for t in payload)
             tokens.append(int(ControlToken.EOS))
             from .integrity import IntegrityChecker
@@ -214,4 +219,6 @@ class PoTED:
             )
             count = self._reporter.report('encode_calls') or 0
             self._reporter.report('encode_calls', 'Number of encode operations', count + 1)
+            if self._dictionary._mode != 'persistent':
+                self._dictionary.reset()
         return tensor

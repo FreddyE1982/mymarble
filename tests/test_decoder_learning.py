@@ -22,10 +22,11 @@ class TestStreamingDecoderLearning(unittest.TestCase):
         tokens = tokens1[:-1] + tokens2[1:]
         decoded = decoder.decode(tokens)
         self.assertEqual(decoded, stream1 + stream2)
-        self.assertEqual(main.Reporter.report('decoder_mutations'), 2)
+        mutations = main.Reporter.report('decoder_mutations')
+        self.assertEqual(mutations, 4)
         print('Combined tokens:', tokens)
         print('Decoded stream:', decoded)
-        print('Decoder mutations metric:', main.Reporter.report('decoder_mutations'))
+        print('Decoder mutations metric:', mutations)
 
 
 if __name__ == '__main__':
