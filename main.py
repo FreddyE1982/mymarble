@@ -71,6 +71,16 @@ class MemoryDevice:
         self.name = name
         self.capacity = capacity
         self.budget = capacity if budget is None else budget
+        if self.budget > self.capacity:
+            count = Reporter.report('invalid_device_configs') or 0
+            Reporter.report(
+                'invalid_device_configs',
+                'Number of device configurations where budget exceeds capacity',
+                count + 1,
+            )
+            raise ValueError(
+                f"Budget {self.budget} exceeds capacity {self.capacity} for {self.name}"
+            )
         policy_cls = eviction_policy or DropPolicy
         self.eviction_policy = policy_cls(self)
         self.blocks = [MemoryBlock(0, capacity, True)]
@@ -118,7 +128,7 @@ class MemoryDevice:
         if amount < 0 or reserve < 0:
             raise ValueError('Amount and reserve must be non-negative')
         request = amount + reserve
-        if self.used + request > self.capacity:
+        if self.used + self.reserved + request > self.capacity:
             self.eviction_policy.evict(request)
             count = Reporter.report('allocation_failures') or 0
             Reporter.report('allocation_failures', 'Number of failed allocations', count + 1)
