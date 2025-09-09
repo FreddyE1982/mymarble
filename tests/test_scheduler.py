@@ -1,6 +1,7 @@
 import unittest
 import sys
 import pathlib
+import torch
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parent.parent))
 import main
@@ -74,6 +75,18 @@ class TestScheduler(unittest.TestCase):
         balancer.register(tensor)
         with self.assertRaises(ValueError):
             balancer.register(tensor)
+
+    def test_tensor_auto_registration(self):
+        device = main.MemoryDevice('cpu', 256)
+        balancer = main.TensorLoadBalancer([device])
+        original_new = main.patch_tensor_registration(balancer)
+        tensor = torch.Tensor(2, 2)
+        print('Auto registration metric:', main.Reporter.report('registered_tensors'))
+        self.assertTrue(tensor.isRegistered())
+        tensor.unregister()
+        print('Post auto unregister metric:', main.Reporter.report('registered_tensors'))
+        self.assertFalse(tensor.isRegistered())
+        torch.Tensor.__new__ = original_new
 
 
 if __name__ == '__main__':
