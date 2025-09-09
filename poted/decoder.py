@@ -46,7 +46,7 @@ class StreamingDecoder:
             token = Token(t)
             seq = self._rev_dict.get(int(token))
             if seq is None:
-                if prev is None:
+                if prev is None or int(token) != self._next:
                     self._reset_state()
                     if self._reporter:
                         count = self._reporter.report('sync_resets') or 0
