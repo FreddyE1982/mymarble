@@ -1,7 +1,7 @@
 class StreamingTokenizer:
-    def __init__(self, reporter=None, max_word_length=16, mode='volatile'):
+    def __init__(self, reporter=None, max_word_length=16, persistent=False):
         from .dictionary import DictionaryManager
-        self._manager = DictionaryManager(reporter, max_word_length, mode)
+        self._manager = DictionaryManager(reporter, max_word_length, persistent=persistent)
 
     def encode(self, data):
         encoded = self._manager.encode(data)

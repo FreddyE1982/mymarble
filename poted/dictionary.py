@@ -1,9 +1,9 @@
 class DictionaryManager:
-    def __init__(self, reporter=None, max_word_length=16, mode='volatile'):
+    def __init__(self, reporter=None, max_word_length=16, persistent=False):
         from .core import ByteAlphabet
         self._reporter = reporter
         self._max_word_length = max_word_length
-        self._mode = mode
+        self._mode = 'persistent' if persistent else 'volatile'
         self._alphabet = ByteAlphabet()
         self._dict = {}
         self._rev_dict = {}

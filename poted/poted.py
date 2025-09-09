@@ -1,20 +1,34 @@
 class PoTED:
-    def __init__(self, *, serializer=None, tokenizer=None, decoder=None, tensor_builder=None, reporter=None, **config):
+    def __init__(
+        self,
+        Lw=0,
+        Le=0,
+        Lu=0,
+        mode='instance',
+        device='cpu',
+        persistent=False,
+        *,
+        serializer=None,
+        tokenizer=None,
+        decoder=None,
+        tensor_builder=None,
+        reporter=None,
+    ):
         reporter = self._instantiate_reporter(reporter)
         self._reporter = reporter
-        dict_mode = 'persistent' if config.get('persistent') else config.get('mode', 'volatile')
-        Lw = config.get('Lw', 0)
-        Le = config.get('Le', 0)
-        Lu = config.get('Lu', 0)
-        device = config.get('device', 'cpu')
+        self._mode = mode
         from .pipeline import JsonSerializer
         from .dictionary import DictionaryManager
         from .tokenizer import StreamingTokenizer
         from .decoder import StreamingDecoder
         from .tensor import TensorBuilder
         self._serializer = serializer if serializer is not None else JsonSerializer()
-        self._dictionary = DictionaryManager(reporter, mode=dict_mode)
-        self._tokenizer = tokenizer if tokenizer is not None else StreamingTokenizer(reporter=reporter, mode=dict_mode)
+        self._dictionary = DictionaryManager(reporter, max_word_length=Lw, persistent=persistent)
+        self._tokenizer = (
+            tokenizer
+            if tokenizer is not None
+            else StreamingTokenizer(reporter=reporter, max_word_length=Lw, persistent=persistent)
+        )
         self._tokenizer._manager = self._dictionary
         self._decoder = decoder if decoder is not None else StreamingDecoder(reporter)
         self._tensor_builder = (
@@ -33,7 +47,7 @@ class PoTED:
                 'decoder': self._decoder,
                 'tensor_builder': self._tensor_builder,
                 'reporter': self._reporter,
-                'mode': getattr(self._tokenizer._manager, '_mode', None),
+                'mode': self._mode,
                 'device': getattr(self._tensor_builder, '_device', None),
                 'Lw': getattr(self._tensor_builder, '_Lw', None),
                 'Le': getattr(self._tensor_builder, '_Le', None),
@@ -57,7 +71,7 @@ class PoTED:
                     if hasattr(self._tensor_builder, '_reporter'):
                         self._tensor_builder._reporter = reporter
                 if 'mode' in config:
-                    self._tokenizer._manager._mode = config['mode']
+                    self._mode = config['mode']
                 if 'device' in config:
                     import torch
                     self._tensor_builder._device = torch.device(config['device'])
@@ -74,8 +88,7 @@ class PoTED:
                 self._decoder = original['decoder']
                 self._tensor_builder = original['tensor_builder']
                 self._reporter = original['reporter']
-                if original['mode'] is not None:
-                    self._tokenizer._manager._mode = original['mode']
+                self._mode = original['mode']
                 if original['device'] is not None:
                     self._tensor_builder._device = original['device']
                 if original['Lw'] is not None:
@@ -112,13 +125,25 @@ class PoTED:
     def tensor_builder(self):
         return self._tensor_builder
     def encode(self, obj):
-        stream = self._serializer.serialize(obj)
+        if self._mode == 'portable':
+            payload = {
+                'dictionary': self._dictionary.export(),
+                'payload': obj,
+            }
+            stream = self._serializer.serialize(payload)
+        else:
+            stream = self._serializer.serialize(obj)
         tokens = self._tokenizer.tokenize(stream)
         tensor = self._tensor_builder.to_tensor(tokens)
         total = len(tokens)
         ratio = len(tokens) / len(stream) if stream else 0
         self._reporter.report('total_tokens', 'Total number of tokens', total)
         self._reporter.report('compression_ratio', 'Token count to byte length ratio', ratio)
+        self._reporter.report(
+            'tensor_shape',
+            'Shape of tensor produced by TensorBuilder',
+            list(tensor.shape),
+        )
         count = self._reporter.report('encode_calls') or 0
         self._reporter.report('encode_calls', 'Number of encode operations', count + 1)
         return tensor
@@ -128,6 +153,8 @@ class PoTED:
                 tokens = self._tensor_builder.to_tokens(tensor)
                 stream = self._decoder.decode(tokens)
                 obj = self._serializer.deserialize(stream)
+                if self._mode == 'portable' and isinstance(obj, dict) and 'payload' in obj:
+                    obj = obj['payload']
             except Exception:
                 count = self._reporter.report('roundtrip_failures') or 0
                 self._reporter.report(
