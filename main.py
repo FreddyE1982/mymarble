@@ -325,7 +325,9 @@ class TensorLoadBalancer(Scheduler):
             dev_key = getattr(tensor, 'device_type', None)
         if dev_key is None:
             raise AttributeError('Tensor device not specified')
-        if not isinstance(dev_key, str):
+        if isinstance(dev_key, torch.device):
+            dev_key = str(dev_key)
+        elif not isinstance(dev_key, str):
             dev_key = getattr(dev_key, 'type', dev_key)
         device = self.devices[dev_key] if isinstance(dev_key, str) else dev_key
         block = device.allocate(size)
