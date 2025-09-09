@@ -1,0 +1,2 @@
+- [ ] PoTED roundtrip for numpy arrays: JsonSerializer raises TypeError
+- [ ] PoTED roundtrip for torch tensors: JsonSerializer raises TypeError
