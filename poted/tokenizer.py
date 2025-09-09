@@ -43,19 +43,21 @@ class StreamingTokenizer:
         from .control import ControlToken
         self._manager.reset()
         encoded = self.encode(stream)
-        tokens = [
-            int(ControlToken.BOS),
-            int(ControlToken.RST),
-            int(ControlToken.SYNC),
-        ]
+        tokens = [int(ControlToken.BOS)]
+        if self._manager._mode != 'persistent':
+            tokens.append(int(ControlToken.RST))
+        tokens.append(int(ControlToken.SYNC))
         tokens.extend(int(t) for t in encoded)
         tokens.append(int(ControlToken.EOS))
         if self._manager.reporter:
+            added = 4 if self._manager._mode != 'persistent' else 3
             self._manager.reporter.report(
                 'control_tokens_added',
                 'Number of control tokens added to stream',
-                4,
+                added,
             )
+        if self._manager._mode != 'persistent':
+            self._manager.reset()
         return tokens
 
     def detokenize(self, tokens):
@@ -81,4 +83,6 @@ class StreamingTokenizer:
             payload.append(Token(t))
         if payload:
             decoded.extend(self.decode(payload))
+        if self._manager._mode != 'persistent':
+            self._manager.reset()
         return bytes(decoded)
