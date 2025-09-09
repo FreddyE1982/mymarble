@@ -64,8 +64,12 @@ class StreamingTokenizer:
         from .validator import ProtocolValidator
         ProtocolValidator.validate(tokens)
         payload = []
+        decoded = bytearray()
         for t in tokens:
             if t == int(ControlToken.RST):
+                if payload:
+                    decoded.extend(self.decode(payload))
+                    payload.clear()
                 self._manager.reset()
                 continue
             if t in (
@@ -75,5 +79,6 @@ class StreamingTokenizer:
             ):
                 continue
             payload.append(Token(t))
-        decoded = self.decode(payload)
+        if payload:
+            decoded.extend(self.decode(payload))
         return bytes(decoded)

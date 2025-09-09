@@ -39,6 +39,18 @@ class TestControlTokens(unittest.TestCase):
         with self.assertRaises(ValueError):
             ProtocolValidator.validate(tokens[1:])
 
+    def test_detokenize_handles_multiple_reset_segments(self):
+        stream1 = b'aaaaab'
+        stream2 = b'cccccc'
+        tokenizer = StreamingTokenizer(main.Reporter)
+        tokens1 = tokenizer.tokenize(stream1)
+        tokens2 = tokenizer.tokenize(stream2)
+        merged = tokens1[:-1] + tokens2[1:]
+        decoded = tokenizer.detokenize(merged)
+        print('Merged tokens:', merged)
+        print('Decoded merged stream:', decoded)
+        self.assertEqual(decoded, stream1 + stream2)
+
 
 if __name__ == '__main__':
     unittest.main()
