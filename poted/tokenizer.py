@@ -82,3 +82,12 @@ class StreamingTokenizer:
             self._add_sequence(prev + (seq[0],))
             prev = seq
         return result
+
+    def tokenize(self, stream):
+        encoded = self.encode(stream)
+        return [int(t) for t in encoded]
+
+    def detokenize(self, tokens):
+        from .core import Token
+        decoded = self.decode([Token(t) for t in tokens])
+        return bytes(decoded)
