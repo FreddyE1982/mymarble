@@ -19,19 +19,62 @@ class DeviceBudgetExceeded(Exception):
         super().__init__(message)
 
 
+class DeviceCapacityExceeded(Exception):
+    """Raised when a memory allocation would exceed the device capacity."""
+
+    def __init__(self, device, requested, capacity):
+        message = f"{device} capacity exceeded: requested {requested}, capacity {capacity}"
+        super().__init__(message)
+
+
+class EvictionPolicy:
+    def __init__(self, device):
+        self.device = device
+
+    def evict(self, amount):
+        raise NotImplementedError('EvictionPolicy.evict must be implemented')
+
+
+class DropPolicy(EvictionPolicy):
+    def evict(self, amount):
+        freed = min(amount, self.device.used)
+        self.device.used -= freed
+        Reporter.report(f'{self.device.name}_used', f'Used capacity on {self.device.name}', self.device.used)
+        count = Reporter.report('evictions') or 0
+        Reporter.report('evictions', 'Number of evictions performed', count + 1)
+
+
+class RemapPolicy(EvictionPolicy):
+    def evict(self, amount):
+        remapped = min(amount, self.device.used)
+        self.device.used -= remapped
+        self.device.reserved += remapped
+        Reporter.report(f'{self.device.name}_used', f'Used capacity on {self.device.name}', self.device.used)
+        Reporter.report(f'{self.device.name}_reserved', f'Reserved capacity on {self.device.name}', self.device.reserved)
+        count = Reporter.report('remaps') or 0
+        Reporter.report('remaps', 'Number of memory remaps', count + 1)
+
+
 class MemoryDevice:
-    def __init__(self, name, capacity, budget=None):
+    def __init__(self, name, capacity, budget=None, eviction_policy=None):
         self.name = name
         self.capacity = capacity
         self.budget = capacity if budget is None else budget
+        policy_cls = eviction_policy or DropPolicy
+        self.eviction_policy = policy_cls(self)
         self.used = 0
         self.reserved = 0
 
     def allocate(self, amount, reserve=0):
         if amount < 0 or reserve < 0:
             raise ValueError('Amount and reserve must be non-negative')
-        if self.used + self.reserved + amount + reserve > self.budget:
-            raise DeviceBudgetExceeded(self.name, amount + reserve, self.budget)
+        request = amount + reserve
+        if self.used + request > self.capacity:
+            self.eviction_policy.evict(request)
+            raise DeviceCapacityExceeded(self.name, request, self.capacity)
+        if self.used + self.reserved + request > self.budget:
+            self.eviction_policy.evict(request)
+            raise DeviceBudgetExceeded(self.name, request, self.budget)
         self.used += amount
         self.reserved += reserve
         Reporter.report(f'{self.name}_used', f'Used capacity on {self.name}', self.used)
