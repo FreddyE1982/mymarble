@@ -47,7 +47,16 @@ class StreamingDecoder:
             seq = self._rev_dict.get(int(token))
             if seq is None:
                 if prev is None:
-                    raise KeyError('Unknown token')
+                    self._reset_state()
+                    if self._reporter:
+                        count = self._reporter.report('sync_resets') or 0
+                        self._reporter.report(
+                            'sync_resets',
+                            'Number of decoder synchronisation resets',
+                            count + 1,
+                        )
+                    from .errors import DictionaryMismatch
+                    raise DictionaryMismatch('Unknown token')
                 seq = prev + (prev[0],)
             result.extend(seq)
             if prev is not None:
