@@ -53,4 +53,18 @@ class StreamingDecoder:
             if prev is not None:
                 self._add_sequence(prev + (seq[0],))
             prev = seq
-        return bytes(result)
+        output = bytes(result)
+        if self._reporter:
+            steps = len(tokens)
+            previous = self._reporter.report('decoder_steps') or 0
+            self._reporter.report(
+                'decoder_steps',
+                'Estimated steps taken by decoder',
+                previous + steps,
+            )
+            import sys
+            memory = sys.getsizeof(tokens) + sys.getsizeof(output) + sys.getsizeof(self._rev_dict)
+            current = self._reporter.report('max_memory_bytes') or 0
+            if memory > current:
+                self._reporter.report('max_memory_bytes', 'Maximum memory usage in bytes', memory)
+        return output
