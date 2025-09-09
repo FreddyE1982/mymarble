@@ -1,9 +1,12 @@
 class StreamingTokenizer:
     def __init__(self, reporter=None, max_word_length=16):
-        from .core import ByteAlphabet, Token  # import inside to respect style
-        self._alphabet = ByteAlphabet()
         self._reporter = reporter
         self._max_word_length = max_word_length
+        self._reset_state()
+
+    def _reset_state(self):
+        from .core import ByteAlphabet, Token
+        self._alphabet = ByteAlphabet()
         self._dict = {}
         self._rev_dict = {}
         self._next = 0
@@ -84,10 +87,40 @@ class StreamingTokenizer:
         return result
 
     def tokenize(self, stream):
+        from .control import ControlToken
+        self._reset_state()
         encoded = self.encode(stream)
-        return [int(t) for t in encoded]
+        tokens = [
+            int(ControlToken.BOS),
+            int(ControlToken.RST),
+            int(ControlToken.SYNC),
+        ]
+        tokens.extend(int(t) for t in encoded)
+        tokens.append(int(ControlToken.EOS))
+        if self._reporter:
+            self._reporter.report(
+                'control_tokens_added',
+                'Number of control tokens added to stream',
+                4,
+            )
+        return tokens
 
     def detokenize(self, tokens):
         from .core import Token
-        decoded = self.decode([Token(t) for t in tokens])
+        from .control import ControlToken
+        from .validator import ProtocolValidator
+        ProtocolValidator.validate(tokens)
+        payload = []
+        for t in tokens:
+            if t == int(ControlToken.RST):
+                self._reset_state()
+                continue
+            if t in (
+                int(ControlToken.BOS),
+                int(ControlToken.EOS),
+                int(ControlToken.SYNC),
+            ):
+                continue
+            payload.append(Token(t))
+        decoded = self.decode(payload)
         return bytes(decoded)
