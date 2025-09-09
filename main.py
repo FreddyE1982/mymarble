@@ -35,11 +35,22 @@ class EvictionPolicy:
         raise NotImplementedError('EvictionPolicy.evict must be implemented')
 
 
+class MemoryBlock:
+    def __init__(self, start, size, free=True):
+        self.start = start
+        self.size = size
+        self.free = free
+
+    def __repr__(self):
+        state = 'free' if self.free else 'used'
+        return f'MemoryBlock(start={self.start}, size={self.size}, {state})'
+
+
 class DropPolicy(EvictionPolicy):
     def evict(self, amount):
         freed = min(amount, self.device.used)
-        self.device.used -= freed
-        Reporter.report(f'{self.device.name}_used', f'Used capacity on {self.device.name}', self.device.used)
+        if freed:
+            self.device.free(freed)
         count = Reporter.report('evictions') or 0
         Reporter.report('evictions', 'Number of evictions performed', count + 1)
 
@@ -47,10 +58,10 @@ class DropPolicy(EvictionPolicy):
 class RemapPolicy(EvictionPolicy):
     def evict(self, amount):
         remapped = min(amount, self.device.used)
-        self.device.used -= remapped
-        self.device.reserved += remapped
-        Reporter.report(f'{self.device.name}_used', f'Used capacity on {self.device.name}', self.device.used)
-        Reporter.report(f'{self.device.name}_reserved', f'Reserved capacity on {self.device.name}', self.device.reserved)
+        if remapped:
+            self.device.free(remapped)
+            self.device.reserved += remapped
+            self.device._update_metrics()
         count = Reporter.report('remaps') or 0
         Reporter.report('remaps', 'Number of memory remaps', count + 1)
 
@@ -62,8 +73,46 @@ class MemoryDevice:
         self.budget = capacity if budget is None else budget
         policy_cls = eviction_policy or DropPolicy
         self.eviction_policy = policy_cls(self)
-        self.used = 0
+        self.blocks = [MemoryBlock(0, capacity, True)]
+        self.allocations = []
         self.reserved = 0
+        self._update_metrics()
+
+    @property
+    def used(self):
+        return sum(block.size for block in self.blocks if not block.free)
+
+    def _update_metrics(self):
+        Reporter.report(
+            f'{self.name}_used',
+            f'Used capacity on {self.name}',
+            self.used,
+        )
+        Reporter.report(
+            f'{self.name}_reserved',
+            f'Reserved capacity on {self.name}',
+            self.reserved,
+        )
+        free_blocks = [b.size for b in self.blocks if b.free]
+        total_free = sum(free_blocks)
+        largest_free = max(free_blocks) if free_blocks else 0
+        Reporter.report(
+            f'{self.name}_largest_free_block',
+            f'Largest free block on {self.name}',
+            largest_free,
+        )
+        fragmentation = 0 if total_free == 0 else 1 - (largest_free / total_free)
+        Reporter.report(
+            f'{self.name}_fragmentation_ratio',
+            f'Memory fragmentation ratio on {self.name}',
+            fragmentation,
+        )
+
+    def _find_block(self, amount):
+        for block in self.blocks:
+            if block.free and block.size >= amount:
+                return block
+        return None
 
     def allocate(self, amount, reserve=0):
         if amount < 0 or reserve < 0:
@@ -71,22 +120,69 @@ class MemoryDevice:
         request = amount + reserve
         if self.used + request > self.capacity:
             self.eviction_policy.evict(request)
+            count = Reporter.report('allocation_failures') or 0
+            Reporter.report('allocation_failures', 'Number of failed allocations', count + 1)
             raise DeviceCapacityExceeded(self.name, request, self.capacity)
         if self.used + self.reserved + request > self.budget:
             self.eviction_policy.evict(request)
+            count = Reporter.report('allocation_failures') or 0
+            Reporter.report('allocation_failures', 'Number of failed allocations', count + 1)
             raise DeviceBudgetExceeded(self.name, request, self.budget)
-        self.used += amount
+        block = self._find_block(amount)
+        if block is None:
+            count = Reporter.report('allocation_failures') or 0
+            Reporter.report('allocation_failures', 'Number of failed allocations', count + 1)
+            raise DeviceCapacityExceeded(self.name, amount, self.capacity)
+        index = self.blocks.index(block)
+        start = block.start
+        if block.size == amount:
+            block.free = False
+            new_block = block
+        else:
+            new_block = MemoryBlock(start, amount, False)
+            block.start += amount
+            block.size -= amount
+            self.blocks.insert(index, new_block)
+        self.allocations.append(new_block)
         self.reserved += reserve
-        Reporter.report(f'{self.name}_used', f'Used capacity on {self.name}', self.used)
-        Reporter.report(f'{self.name}_reserved', f'Reserved capacity on {self.name}', self.reserved)
+        self._update_metrics()
 
     def free(self, amount, release=0):
         if amount < 0 or release < 0 or amount > self.used or release > self.reserved:
             raise ValueError('Amount and release must be within used and reserved range')
-        self.used -= amount
+        remaining = amount
+        while remaining > 0:
+            if not self.allocations:
+                raise ValueError('No allocations to free')
+            block = self.allocations.pop()
+            if block.size > remaining:
+                new_free = MemoryBlock(block.start + block.size - remaining, remaining, True)
+                block.size -= remaining
+                idx = self.blocks.index(block)
+                self.blocks.insert(idx + 1, new_free)
+                self.allocations.append(block)
+                remaining = 0
+            elif block.size == remaining:
+                block.free = True
+                remaining = 0
+            else:
+                block.free = True
+                remaining -= block.size
         self.reserved -= release
-        Reporter.report(f'{self.name}_used', f'Used capacity on {self.name}', self.used)
-        Reporter.report(f'{self.name}_reserved', f'Reserved capacity on {self.name}', self.reserved)
+        self._update_metrics()
+
+    def compact(self):
+        self.blocks.sort(key=lambda b: b.start)
+        i = 0
+        while i < len(self.blocks) - 1:
+            current = self.blocks[i]
+            nxt = self.blocks[i + 1]
+            if current.free and nxt.free:
+                current.size += nxt.size
+                del self.blocks[i + 1]
+            else:
+                i += 1
+        self._update_metrics()
 
     def available(self):
         return self.budget - self.used - self.reserved
