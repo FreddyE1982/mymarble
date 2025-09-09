@@ -12,13 +12,13 @@ class TestFragmentation(unittest.TestCase):
 
     def test_compaction_reduces_fragmentation(self):
         device = main.MemoryDevice('VRAM', 100)
-        device.allocate(30)
-        device.allocate(30)
-        device.free(30)
-        device.allocate(10)
-        device.allocate(10)
-        device.free(10)
-        device.free(10)
+        b1 = device.allocate(30)
+        b2 = device.allocate(30)
+        device.free(b2)
+        b3 = device.allocate(10)
+        b4 = device.allocate(10)
+        device.free(b4)
+        device.free(b3)
         before = main.Reporter.report(['VRAM_fragmentation_ratio', 'VRAM_largest_free_block'])
         print('Before compaction:', before)
         with self.assertRaises(main.DeviceCapacityExceeded):
