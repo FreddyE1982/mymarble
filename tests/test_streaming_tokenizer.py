@@ -40,6 +40,15 @@ class TestStreamingTokenizer(unittest.TestCase):
         self.assertEqual(size, 257)
         self.assertEqual(longest, 2)
 
+    def test_invalid_token_raises_keyerror(self):
+        tokenizer = StreamingTokenizer(main.Reporter)
+        stream = [65, 66, 67]
+        tokens = tokenizer.encode(stream)
+        tokens.append(9999)
+        print('Corrupted tokens:', tokens)
+        with self.assertRaises(KeyError):
+            tokenizer.decode(tokens)
+
 
 if __name__ == '__main__':
     unittest.main()

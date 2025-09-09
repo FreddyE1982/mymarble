@@ -95,6 +95,8 @@ class DictionaryManager:
         for t in tokens[1:]:
             seq = self._rev_dict.get(int(t))
             if seq is None:
+                if int(t) != self._next:
+                    raise KeyError('Unknown token')
                 seq = prev + (prev[0],)
             result.extend(seq)
             self.add_sequence(prev + (seq[0],))
