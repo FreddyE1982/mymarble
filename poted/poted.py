@@ -1,7 +1,7 @@
 class PoTED:
     def __init__(
         self,
-        Lw=0,
+        Lw=None,
         Le=0,
         Lu=0,
         mode='instance',
@@ -17,17 +17,26 @@ class PoTED:
         reporter = self._instantiate_reporter(reporter)
         self._reporter = reporter
         self._mode = mode
+        if Lw is None:
+            dict_Lw = 16
+            tensor_Lw = 0
+        else:
+            dict_Lw = tensor_Lw = Lw
         from .pipeline import JsonSerializer
         from .dictionary import DictionaryManager
         from .tokenizer import StreamingTokenizer
         from .decoder import StreamingDecoder
         from .tensor import TensorBuilder
         self._serializer = serializer if serializer is not None else JsonSerializer()
-        self._dictionary = DictionaryManager(reporter, max_word_length=Lw, persistent=persistent)
+        self._dictionary = DictionaryManager(
+            reporter, max_word_length=dict_Lw, persistent=persistent
+        )
         self._tokenizer = (
             tokenizer
             if tokenizer is not None
-            else StreamingTokenizer(reporter=reporter, max_word_length=Lw, persistent=persistent)
+            else StreamingTokenizer(
+                reporter=reporter, max_word_length=dict_Lw, persistent=persistent
+            )
         )
         self._tokenizer._manager = self._dictionary
         self._decoder = (
@@ -36,7 +45,9 @@ class PoTED:
         self._tensor_builder = (
             tensor_builder
             if tensor_builder is not None
-            else TensorBuilder(Lw=Lw, Le=Le, Lu=Lu, device=device, reporter=reporter)
+            else TensorBuilder(
+                Lw=tensor_Lw, Le=Le, Lu=Lu, device=device, reporter=reporter
+            )
         )
         self._integrity_states = {}
     def _override(self, serializer=None, tokenizer=None, decoder=None, tensor_builder=None, reporter=None, **config):
@@ -215,6 +226,8 @@ class PoTED:
             tokens.append(int(ControlToken.SYNC))
             tokens.extend(int(t) for t in payload)
             tokens.append(int(ControlToken.EOS))
+            if self._dictionary._mode != 'persistent':
+                self._dictionary.reset()
             from .integrity import IntegrityChecker
             checker = IntegrityChecker(self._reporter)
             stream_hash = checker.hash_stream(tokens)
@@ -232,6 +245,4 @@ class PoTED:
             )
             count = self._reporter.report('encode_calls') or 0
             self._reporter.report('encode_calls', 'Number of encode operations', count + 1)
-            if self._dictionary._mode != 'persistent':
-                self._dictionary.reset()
         return tensor
