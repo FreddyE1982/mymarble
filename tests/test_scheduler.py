@@ -6,6 +6,12 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parent.parent))
 import main
 
 
+class DummyTensor:
+    def __init__(self, size, device):
+        self.nbytes = size
+        self.device = device
+
+
 class TestScheduler(unittest.TestCase):
     def setUp(self):
         main.Reporter._metrics = {}
@@ -16,7 +22,7 @@ class TestScheduler(unittest.TestCase):
             main.Operation('op1', 128, 1, 'VRAM'),
             main.Operation('op2', 128, 1, 'VRAM'),
         ]
-        scheduler = main.Scheduler([device])
+        scheduler = main.TensorLoadBalancer([device])
         duration = scheduler.run(ops)
         print('Sequential metrics:', main.Reporter.report(['VRAM_used', 'makespan', 'VRAM_idle_time']))
         self.assertEqual(duration, 2)
@@ -26,7 +32,7 @@ class TestScheduler(unittest.TestCase):
     def test_budget_overrun_records_metric(self):
         device = main.MemoryDevice('VRAM', 512, budget=256)
         ops = [main.Operation('op1', 300, 1, 'VRAM')]
-        scheduler = main.Scheduler([device])
+        scheduler = main.TensorLoadBalancer([device])
         with self.assertRaises(main.DeviceBudgetExceeded):
             scheduler.run(ops)
         print('Budget metric:', main.Reporter.report('budget_exceeded'))
@@ -39,13 +45,35 @@ class TestScheduler(unittest.TestCase):
             main.Operation('gpu_op', 128, 4, 'GPU'),
             main.Operation('cpu_op', 128, 4, 'CPU'),
         ]
-        scheduler = main.Scheduler([gpu, cpu])
+        scheduler = main.TensorLoadBalancer([gpu, cpu])
         duration = scheduler.run_parallel(ops)
         print('Parallel metrics:', main.Reporter.report(['makespan', 'GPU_idle_time', 'CPU_idle_time']))
         self.assertEqual(duration, 4)
         self.assertEqual(main.Reporter.report('GPU_idle_time'), 0)
         self.assertEqual(main.Reporter.report('CPU_idle_time'), 0)
         self.assertEqual(main.Reporter.report('makespan'), 4)
+
+    def test_register_unregister(self):
+        device = main.MemoryDevice('VRAM', 256)
+        balancer = main.TensorLoadBalancer([device])
+        tensor = DummyTensor(128, 'VRAM')
+        self.assertFalse(balancer.isRegistered(tensor))
+        balancer.register(tensor)
+        print('Post register used:', main.Reporter.report('VRAM_used'))
+        self.assertTrue(balancer.isRegistered(tensor))
+        self.assertEqual(main.Reporter.report('VRAM_used'), 128)
+        balancer.unregister(tensor)
+        print('Post unregister used:', main.Reporter.report('VRAM_used'))
+        self.assertFalse(balancer.isRegistered(tensor))
+        self.assertEqual(main.Reporter.report('VRAM_used'), 0)
+
+    def test_duplicate_registration_rejected(self):
+        device = main.MemoryDevice('VRAM', 256)
+        balancer = main.TensorLoadBalancer([device])
+        tensor = DummyTensor(64, 'VRAM')
+        balancer.register(tensor)
+        with self.assertRaises(ValueError):
+            balancer.register(tensor)
 
 
 if __name__ == '__main__':
