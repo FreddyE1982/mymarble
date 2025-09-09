@@ -48,19 +48,19 @@ class MemoryBlock:
 
 class DropPolicy(EvictionPolicy):
     def evict(self, amount):
-        freed = min(amount, self.device.used)
-        if freed:
-            self.device.free(freed)
+        target = min(amount, self.device.used)
+        if target:
+            self.device._free_amount(target)
         count = Reporter.report('evictions') or 0
         Reporter.report('evictions', 'Number of evictions performed', count + 1)
 
 
 class RemapPolicy(EvictionPolicy):
     def evict(self, amount):
-        remapped = min(amount, self.device.used)
-        if remapped:
-            self.device.free(remapped)
-            self.device.reserved += remapped
+        target = min(amount, self.device.used)
+        if target:
+            self.device._free_amount(target)
+            self.device.reserved += target
             self.device._update_metrics()
         count = Reporter.report('remaps') or 0
         Reporter.report('remaps', 'Number of memory remaps', count + 1)
@@ -156,10 +156,11 @@ class MemoryDevice:
         self.allocations.append(new_block)
         self.reserved += reserve
         self._update_metrics()
+        return new_block
 
-    def free(self, amount, release=0):
-        if amount < 0 or release < 0 or amount > self.used or release > self.reserved:
-            raise ValueError('Amount and release must be within used and reserved range')
+    def _free_amount(self, amount):
+        if amount < 0 or amount > self.used:
+            raise ValueError('Amount must be within used range')
         remaining = amount
         while remaining > 0:
             if not self.allocations:
@@ -178,6 +179,15 @@ class MemoryDevice:
             else:
                 block.free = True
                 remaining -= block.size
+        self._update_metrics()
+
+    def free(self, block, release=0):
+        if release < 0 or release > self.reserved:
+            raise ValueError('Release must be within reserved range')
+        if block not in self.allocations:
+            raise ValueError('Block not allocated on this device')
+        self.allocations.remove(block)
+        block.free = True
         self.reserved -= release
         self._update_metrics()
 
@@ -216,21 +226,25 @@ class Operation:
             self.memory_requirements = memory_requirement
         else:
             raise TypeError('memory_requirement must be int or dict')
+        self._allocated_blocks = {}
 
     def allocate(self, devices):
         allocated = []
         try:
             for dt, amount in self.memory_requirements.items():
-                devices[dt].allocate(amount)
+                block = devices[dt].allocate(amount)
+                self._allocated_blocks[dt] = block
                 allocated.append(dt)
         except (DeviceBudgetExceeded, DeviceCapacityExceeded):
             for dt in allocated:
-                devices[dt].free(self.memory_requirements[dt])
+                devices[dt].free(self._allocated_blocks[dt])
+            self._allocated_blocks = {}
             raise
 
     def free(self, devices):
-        for dt, amount in self.memory_requirements.items():
-            devices[dt].free(amount)
+        for dt, block in self._allocated_blocks.items():
+            devices[dt].free(block)
+        self._allocated_blocks = {}
 
 
 class Scheduler:
