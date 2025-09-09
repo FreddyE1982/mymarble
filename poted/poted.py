@@ -38,8 +38,7 @@ class PoTED:
             if tensor_builder is not None
             else TensorBuilder(Lw=Lw, Le=Le, Lu=Lu, device=device, reporter=reporter)
         )
-        self._last_stream_hash = None
-        self._last_dict_hash = None
+        self._integrity_states = {}
     def _override(self, serializer=None, tokenizer=None, decoder=None, tensor_builder=None, reporter=None, **config):
         from contextlib import contextmanager
 
@@ -138,6 +137,11 @@ class PoTED:
         else:
             stream = self._serializer.serialize(obj)
         tokens = self._tokenizer.tokenize(stream)
+        from .integrity import IntegrityChecker
+        checker = IntegrityChecker(self._reporter)
+        stream_hash = checker.hash_stream(tokens)
+        dict_hash = checker.hash_dictionary(self._tokenizer._manager)
+        self._integrity_states[stream_hash] = dict_hash
         tensor = self._tensor_builder.to_tensor(tokens)
         total = len(tokens)
         ratio = len(tokens) / len(stream) if stream else 0
@@ -167,26 +171,27 @@ class PoTED:
                 from .integrity import IntegrityChecker
                 checker = IntegrityChecker(self._reporter)
                 stream_hash = checker.hash_stream(tokens)
-                if self._last_stream_hash is not None and stream_hash != self._last_stream_hash:
+                expected_dict_hash = self._integrity_states.get(stream_hash)
+                if expected_dict_hash is None:
                     from .errors import SyncError
                     raise SyncError('Stream hash mismatch')
                 stream = self._decoder.decode(tokens)
                 obj = self._serializer.deserialize(stream)
                 if self._mode == 'portable' and isinstance(obj, dict) and 'payload' in obj:
                     obj = obj['payload']
-                if self._last_dict_hash is not None:
-                    from types import SimpleNamespace
-                    expected = getattr(self._tokenizer, "_manager", None)
-                    limit = getattr(expected, "_next", None)
-                    mapping = {
-                        seq: token
-                        for token, seq in self._decoder._rev_dict.items()
-                        if limit is None or token < limit
-                    }
-                    dict_hash = checker.hash_dictionary(SimpleNamespace(_dict=mapping))
-                    if dict_hash != self._last_dict_hash:
-                        from .errors import DictionaryMismatch
-                        raise DictionaryMismatch('Dictionary hash mismatch')
+                from types import SimpleNamespace
+                expected = getattr(self._tokenizer, "_manager", None)
+                limit = getattr(expected, "_next", None)
+                mapping = {
+                    seq: token
+                    for token, seq in self._decoder._rev_dict.items()
+                    if limit is None or token < limit
+                }
+                dict_hash = checker.hash_dictionary(SimpleNamespace(_dict=mapping))
+                if dict_hash != expected_dict_hash:
+                    from .errors import DictionaryMismatch
+                    raise DictionaryMismatch('Dictionary hash mismatch')
+                del self._integrity_states[stream_hash]
             except Exception:
                 count = self._reporter.report('roundtrip_failures') or 0
                 self._reporter.report(
@@ -212,8 +217,9 @@ class PoTED:
             tokens.append(int(ControlToken.EOS))
             from .integrity import IntegrityChecker
             checker = IntegrityChecker(self._reporter)
-            self._last_stream_hash = checker.hash_stream(tokens)
-            self._last_dict_hash = checker.hash_dictionary(self._tokenizer._manager)
+            stream_hash = checker.hash_stream(tokens)
+            dict_hash = checker.hash_dictionary(self._tokenizer._manager)
+            self._integrity_states[stream_hash] = dict_hash
             tensor = self._tensor_builder.to_tensor(tokens)
             total = len(tokens)
             ratio = len(tokens) / len(stream) if stream else 0
