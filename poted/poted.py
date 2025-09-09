@@ -50,6 +50,7 @@ class PoTED:
             )
         )
         self._integrity_states = {}
+        self._dictionary_snapshots = {}
     def _override(self, serializer=None, tokenizer=None, decoder=None, tensor_builder=None, reporter=None, **config):
         from contextlib import contextmanager
 
@@ -159,6 +160,16 @@ class PoTED:
         stream_hash = checker.hash_stream(tokens)
         dict_hash = checker.hash_dictionary(self._tokenizer._manager)
         self._integrity_states[stream_hash] = dict_hash
+        if self._dictionary._mode == 'persistent':
+            self._dictionary_snapshots[stream_hash] = (
+                self._dictionary._rev_dict.copy(),
+                self._dictionary._next,
+            )
+            self._reporter.report(
+                'snapshot_count',
+                'Number of active dictionary snapshots',
+                len(self._dictionary_snapshots),
+            )
         tensor = self._tensor_builder.to_tensor(tokens)
         total = len(tokens)
         ratio = len(tokens) / len(stream) if stream else 0
@@ -192,23 +203,37 @@ class PoTED:
                 if expected_dict_hash is None:
                     from .errors import SyncError
                     raise SyncError('Stream hash mismatch')
-                stream = self._decoder.decode(tokens)
-                obj = self._serializer.deserialize(stream)
-                if self._mode == 'portable' and isinstance(obj, dict) and 'payload' in obj:
-                    obj = obj['payload']
+                snapshot = self._dictionary_snapshots.get(stream_hash)
                 from types import SimpleNamespace
-                expected = getattr(self._tokenizer, "_manager", None)
-                limit = getattr(expected, "_next", None)
-                mapping = {
-                    seq: token
-                    for token, seq in self._decoder._rev_dict.items()
-                    if limit is None or token < limit
-                }
+                if snapshot is not None:
+                    rev_dict, limit = snapshot
+                    self._decoder._rev_dict = rev_dict.copy()
+                    self._decoder._next = limit
+                    mapping = {seq: token for token, seq in rev_dict.items()}
+                else:
+                    expected = getattr(self._tokenizer, "_manager", None)
+                    limit = getattr(expected, "_next", None)
+                    mapping = {
+                        seq: token
+                        for token, seq in self._decoder._rev_dict.items()
+                        if limit is None or token < limit
+                    }
                 dict_hash = checker.hash_dictionary(SimpleNamespace(_dict=mapping))
                 if dict_hash != expected_dict_hash:
                     from .errors import DictionaryMismatch
                     raise DictionaryMismatch('Dictionary hash mismatch')
+                stream = self._decoder.decode(tokens)
+                obj = self._serializer.deserialize(stream)
+                if self._mode == 'portable' and isinstance(obj, dict) and 'payload' in obj:
+                    obj = obj['payload']
                 del self._integrity_states[stream_hash]
+                if stream_hash in self._dictionary_snapshots:
+                    del self._dictionary_snapshots[stream_hash]
+                    self._reporter.report(
+                        'snapshot_count',
+                        'Number of active dictionary snapshots',
+                        len(self._dictionary_snapshots),
+                    )
             except Exception:
                 count = self._reporter.report('roundtrip_failures') or 0
                 self._reporter.report(
