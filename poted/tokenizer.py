@@ -4,10 +4,40 @@ class StreamingTokenizer:
         self._manager = DictionaryManager(reporter, max_word_length, mode)
 
     def encode(self, data):
-        return self._manager.encode(data)
+        encoded = self._manager.encode(data)
+        reporter = self._manager.reporter
+        if reporter:
+            steps = len(data)
+            previous = reporter.report('tokenizer_steps') or 0
+            reporter.report(
+                'tokenizer_steps',
+                'Estimated steps taken by tokenizer',
+                previous + steps,
+            )
+            import sys
+            memory = sys.getsizeof(encoded) + sys.getsizeof(self._manager._dict) + sys.getsizeof(self._manager._rev_dict)
+            current = reporter.report('max_memory_bytes') or 0
+            if memory > current:
+                reporter.report('max_memory_bytes', 'Maximum memory usage in bytes', memory)
+        return encoded
 
     def decode(self, tokens):
-        return self._manager.decode(tokens)
+        decoded = self._manager.decode(tokens)
+        reporter = self._manager.reporter
+        if reporter:
+            steps = len(tokens)
+            previous = reporter.report('tokenizer_steps') or 0
+            reporter.report(
+                'tokenizer_steps',
+                'Estimated steps taken by tokenizer',
+                previous + steps,
+            )
+            import sys
+            memory = sys.getsizeof(tokens) + sys.getsizeof(decoded) + sys.getsizeof(self._manager._dict) + sys.getsizeof(self._manager._rev_dict)
+            current = reporter.report('max_memory_bytes') or 0
+            if memory > current:
+                reporter.report('max_memory_bytes', 'Maximum memory usage in bytes', memory)
+        return decoded
 
     def tokenize(self, stream):
         from .control import ControlToken
