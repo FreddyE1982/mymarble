@@ -19,7 +19,7 @@ class IntegrityChecker:
 
     def _token_bytes(self, token):
         """Encode a token as 4-byte big-endian representation."""
-        return int(token).to_bytes(4, 'big', signed=False)
+        return int(token).to_bytes(4, 'big', signed=True)
 
     def hash_stream(self, stream):
         """Hash a sequence of tokens or bytes in fixed-size segments.
