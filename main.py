@@ -227,24 +227,47 @@ class Operation:
         else:
             raise TypeError('memory_requirement must be int or dict')
         self._allocated_blocks = {}
+        self._tensors = {}
 
-    def allocate(self, devices):
+    def allocate(self, manager):
         allocated = []
         try:
-            for dt, amount in self.memory_requirements.items():
-                block = devices[dt].allocate(amount)
-                self._allocated_blocks[dt] = block
-                allocated.append(dt)
+            if hasattr(manager, 'register'):
+                for dt, amount in self.memory_requirements.items():
+                    tensor = type('Tensor', (), {})()
+                    tensor.device = dt
+                    tensor.nbytes = amount
+                    manager.register(tensor)
+                    self._tensors[dt] = tensor
+                    allocated.append(dt)
+            else:
+                devices = manager.devices if hasattr(manager, 'devices') else manager
+                for dt, amount in self.memory_requirements.items():
+                    block = devices[dt].allocate(amount)
+                    self._allocated_blocks[dt] = block
+                    allocated.append(dt)
         except (DeviceBudgetExceeded, DeviceCapacityExceeded):
-            for dt in allocated:
-                devices[dt].free(self._allocated_blocks[dt])
-            self._allocated_blocks = {}
+            if hasattr(manager, 'register'):
+                for dt in allocated:
+                    manager.unregister(self._tensors[dt])
+                self._tensors = {}
+            else:
+                devices = manager.devices if hasattr(manager, 'devices') else manager
+                for dt in allocated:
+                    devices[dt].free(self._allocated_blocks[dt])
+                self._allocated_blocks = {}
             raise
 
-    def free(self, devices):
-        for dt, block in self._allocated_blocks.items():
-            devices[dt].free(block)
-        self._allocated_blocks = {}
+    def free(self, manager):
+        if hasattr(manager, 'unregister'):
+            for tensor in self._tensors.values():
+                manager.unregister(tensor)
+            self._tensors = {}
+        else:
+            devices = manager.devices if hasattr(manager, 'devices') else manager
+            for dt, block in self._allocated_blocks.items():
+                devices[dt].free(block)
+            self._allocated_blocks = {}
 
 
 class Scheduler:
@@ -261,9 +284,9 @@ class Scheduler:
         for op in operations:
             try:
                 start = time
-                op.allocate(self.devices)
+                op.allocate(self)
                 time += op.duration
-                op.free(self.devices)
+                op.free(self)
                 for dt in op.device_types:
                     timelines[dt].append((start, time))
                     busy[dt] += op.duration
@@ -277,6 +300,43 @@ class Scheduler:
             Reporter.report(f'{name}_idle_time', f'Idle time on {name}', idle)
             Reporter.report(f'{name}_timeline', f'Execution timeline on {name}', timelines[name])
         return time
+
+
+class TensorLoadBalancer(Scheduler):
+    def __init__(self, devices):
+        super().__init__(devices)
+        self._registry = {}
+
+    def register(self, tensor):
+        tid = id(tensor)
+        if tid in self._registry:
+            raise ValueError('Tensor already registered')
+        size = getattr(tensor, 'nbytes', None)
+        if size is None:
+            size = getattr(tensor, 'size', None)
+        if size is None:
+            raise AttributeError('Tensor size not specified')
+        dev_key = getattr(tensor, 'device', None)
+        if dev_key is None:
+            dev_key = getattr(tensor, 'device_type', None)
+        if dev_key is None:
+            raise AttributeError('Tensor device not specified')
+        device = self.devices[dev_key] if isinstance(dev_key, str) else dev_key
+        block = device.allocate(size)
+        self._registry[tid] = {'device': device, 'block': block, 'size': size}
+        Reporter.report('registered_tensors', 'Number of tensors currently registered', len(self._registry))
+        return block
+
+    def unregister(self, tensor):
+        tid = id(tensor)
+        if tid not in self._registry:
+            raise KeyError('Tensor not registered')
+        meta = self._registry.pop(tid)
+        meta['device'].free(meta['block'])
+        Reporter.report('registered_tensors', 'Number of tensors currently registered', len(self._registry))
+
+    def isRegistered(self, tensor):
+        return id(tensor) in self._registry
 
     def run_parallel(self, operations):
         self.queues = {name: [] for name in self.devices}
@@ -293,7 +353,7 @@ class Scheduler:
             for op in list(ready):
                 if all(self.devices[dt].available() >= op.memory_requirements[dt] for dt in op.device_types):
                     try:
-                        op.allocate(self.devices)
+                        op.allocate(self)
                     except DeviceBudgetExceeded:
                         count = Reporter.report('budget_exceeded') or 0
                         Reporter.report('budget_exceeded', 'Number of operations exceeding budget', count + 1)
@@ -307,7 +367,7 @@ class Scheduler:
             for op in in_progress:
                 op.remaining -= 1
                 if op.remaining == 0:
-                    op.free(self.devices)
+                    op.free(self)
                     for dt in op.device_types:
                         timelines[dt].append((op.start_time, time))
                         busy[dt] += op.duration
