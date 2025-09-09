@@ -36,9 +36,17 @@ class TensorBuilder:
         return self.from_tokens(tokens, device=device)
 
     def to_tokens(self, tensor):
+        data = tensor.tolist() if hasattr(tensor, 'tolist') else tensor
+        sequences = data if data and isinstance(data[0], list) else [data]
         tokens = []
-        for row in tensor.tolist():
-            for x in row:
+        for seq in sequences:
+            for x in seq:
                 if x != self.PAD:
                     tokens.append(int(x))
+        if self._reporter:
+            self._reporter.report(
+                'extracted_tokens',
+                'Number of tokens extracted from tensor',
+                len(tokens),
+            )
         return tokens
