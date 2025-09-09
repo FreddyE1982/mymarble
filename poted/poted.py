@@ -174,12 +174,19 @@ class PoTED:
                 obj = self._serializer.deserialize(stream)
                 if self._mode == 'portable' and isinstance(obj, dict) and 'payload' in obj:
                     obj = obj['payload']
-                from types import SimpleNamespace
-                mapping = {seq: token for token, seq in self._decoder._rev_dict.items()}
-                dict_hash = checker.hash_dictionary(SimpleNamespace(_dict=mapping))
-                if self._last_dict_hash is not None and dict_hash != self._last_dict_hash:
-                    from .errors import DictionaryMismatch
-                    raise DictionaryMismatch('Dictionary hash mismatch')
+                if self._last_dict_hash is not None:
+                    from types import SimpleNamespace
+                    expected = getattr(self._tokenizer, "_manager", None)
+                    limit = getattr(expected, "_next", None)
+                    mapping = {
+                        seq: token
+                        for token, seq in self._decoder._rev_dict.items()
+                        if limit is None or token < limit
+                    }
+                    dict_hash = checker.hash_dictionary(SimpleNamespace(_dict=mapping))
+                    if dict_hash != self._last_dict_hash:
+                        from .errors import DictionaryMismatch
+                        raise DictionaryMismatch('Dictionary hash mismatch')
             except Exception:
                 count = self._reporter.report('roundtrip_failures') or 0
                 self._reporter.report(
