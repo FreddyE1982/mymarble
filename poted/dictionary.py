@@ -101,6 +101,12 @@ class DictionaryManager:
             prev = seq
         return result
 
+    def export(self):
+        entries = []
+        for seq, token in sorted(self._dict.items(), key=lambda item: int(item[1])):
+            entries.append({"seq": list(seq), "token": int(token)})
+        return entries
+
     @property
     def reporter(self):
         return self._reporter

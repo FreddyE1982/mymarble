@@ -15,14 +15,22 @@ class JsonSerializer:
 
 
 class PoTEDPipeline:
-    def __init__(self, serializer, tokenizer, tensor_builder, reporter=None):
+    def __init__(self, serializer, tokenizer, tensor_builder, reporter=None, mode='instance'):
+        if mode not in ('portable', 'instance'):
+            raise ValueError("mode must be 'portable' or 'instance'")
         self._serializer = serializer
         self._tokenizer = tokenizer
         self._tensor_builder = tensor_builder
         self._reporter = reporter
+        self._mode = mode
 
     def encode(self, obj):
-        stream = self._serializer.serialize(obj)
+        if self._mode == 'portable':
+            dictionary = self._tokenizer._manager.export()
+            payload = {'dictionary': dictionary, 'payload': obj}
+            stream = self._serializer.serialize(payload)
+        else:
+            stream = self._serializer.serialize(obj)
         tokens = self._tokenizer.tokenize(stream)
         tensor = self._tensor_builder.to_tensor(tokens)
         if self._reporter:
@@ -35,4 +43,7 @@ class PoTEDPipeline:
     def decode(self, tensor):
         tokens = self._tensor_builder.to_tokens(tensor)
         stream = self._tokenizer.detokenize(tokens)
-        return self._serializer.deserialize(stream)
+        obj = self._serializer.deserialize(stream)
+        if self._mode == 'portable' and isinstance(obj, dict) and 'payload' in obj:
+            return obj['payload']
+        return obj
