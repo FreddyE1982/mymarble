@@ -7,7 +7,7 @@
 1.6 prefer to override functions whenever possible
 
 2. What you are NEVER allowed to do:
-2.1 never implement any parts of code "simplified", "as stub", "as demo"
+2.1 never implement any parts of code "simplified", "as stub", "as demo", "basic", etc. ALL PARTS OF CODE MUST BE IMPLEMENTED AS EXTENSIVE AS POSSIBLE AND BE FULLY PRODUCTION LEVEL!!!
 2.2 you are forbidden to simplify, cut short, shorten, stub, or restrict any part of existing code or algorithm
 
 3. GOLDEN RULES
