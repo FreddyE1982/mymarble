@@ -26,5 +26,13 @@
 4.2.1 figure out if the task is to extensive to be done in one run, if yes implement as much as possible of it and then devide it into smaller managable steps and substebs that you present to the user as clickable buttons (task templates)
 4.2.2 test your changes
 4.3. determine if your changes require creating / updating of requirements.txt, ensure that requirements.txt does not include any packages or package versions that are incompatible to each other. resolve any inconsistencies.
+4.4. add reportables to the new / modifed code as nessecary ---> see 7. to 7.4
 
-5. if during your work you can think up a rule to add to this AGENTS.md that would make sense, you may add it as long as it does not contradict or weaken any existing rule!
+6. if during your work you can think up a rule to add to this AGENTS.md that would make sense, you may add it as long as it does not contradict or weaken any existing rule!
+7. reporter: the reporter is a class that once instantiated automatically LIVE collects all reportables from ANYWHERE in the repo / code. ensure it exists / create it
+7.1: reportables: reportables in the sense of 6. are ANY numerical variables that can be considered METRICS of any kind
+7.2 reportables are recorded in the reporter with a speaking, unique name
+7.3 "report(metricname, metricdescription, value)" anywhere in any file in the repo creates a new / updates a metric in the reporter, metricname must be a speaking name for the metric (unique), metricdescription (unique) is a detailed description of the metric..what it means and what it is used for, value is the numeric value of the metric. its not nessecary to give metricdescription if the metric of metricname already exists
+7.4 someVariableName = report(metricname) gets the value of that metric if a value has been stored
+7.5. metrics = report([list of metricnames]) returns a list of the values of [list of metricnames]
+   
