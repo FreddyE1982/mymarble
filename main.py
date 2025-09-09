@@ -11,28 +11,42 @@ class Reporter:
         return cls._metrics.get(metricname)
 
 
+class DeviceBudgetExceeded(Exception):
+    """Raised when a memory allocation would exceed the device budget."""
+
+    def __init__(self, device, requested, budget):
+        message = f"{device} budget exceeded: requested {requested}, budget {budget}"
+        super().__init__(message)
+
+
 class MemoryDevice:
-    def __init__(self, name, capacity):
+    def __init__(self, name, capacity, budget=None):
         self.name = name
         self.capacity = capacity
+        self.budget = capacity if budget is None else budget
         self.used = 0
+        self.reserved = 0
 
-    def allocate(self, amount):
-        if amount < 0:
-            raise ValueError('Amount must be non-negative')
-        if self.used + amount > self.capacity:
-            raise MemoryError(f'{self.name} capacity exceeded')
+    def allocate(self, amount, reserve=0):
+        if amount < 0 or reserve < 0:
+            raise ValueError('Amount and reserve must be non-negative')
+        if self.used + self.reserved + amount + reserve > self.budget:
+            raise DeviceBudgetExceeded(self.name, amount + reserve, self.budget)
         self.used += amount
+        self.reserved += reserve
         Reporter.report(f'{self.name}_used', f'Used capacity on {self.name}', self.used)
+        Reporter.report(f'{self.name}_reserved', f'Reserved capacity on {self.name}', self.reserved)
 
-    def free(self, amount):
-        if amount < 0 or amount > self.used:
-            raise ValueError('Amount must be within used range')
+    def free(self, amount, release=0):
+        if amount < 0 or release < 0 or amount > self.used or release > self.reserved:
+            raise ValueError('Amount and release must be within used and reserved range')
         self.used -= amount
+        self.reserved -= release
         Reporter.report(f'{self.name}_used', f'Used capacity on {self.name}', self.used)
+        Reporter.report(f'{self.name}_reserved', f'Reserved capacity on {self.name}', self.reserved)
 
     def available(self):
-        return self.capacity - self.used
+        return self.budget - self.used - self.reserved
 
 
 class Operation:
@@ -54,8 +68,13 @@ class Scheduler:
     def run(self, operations):
         time = 0
         for op in operations:
-            op.execute()
-            time += op.duration
+            try:
+                op.execute()
+                time += op.duration
+            except DeviceBudgetExceeded:
+                count = Reporter.report('budget_exceeded') or 0
+                Reporter.report('budget_exceeded', 'Number of operations exceeding budget', count + 1)
+                raise
         Reporter.report('makespan', 'Total execution time', time)
         return time
 
