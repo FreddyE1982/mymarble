@@ -1,3 +1,3 @@
 - [solved] PoTED roundtrip for numpy arrays: JsonSerializer raises TypeError
 - [solved] PoTED roundtrip for torch tensors: JsonSerializer raises TypeError
-- Graph latency tests: Graph.__init__ missing latency_estimator and Graph.forward missing global_loss_target
+- [solved] Graph latency tests: Graph.__init__ missing latency_estimator and Graph.forward missing global_loss_target
