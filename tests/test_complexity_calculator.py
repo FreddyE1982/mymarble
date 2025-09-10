@@ -46,6 +46,48 @@ class TestComplexityCalculator(unittest.TestCase):
         self.assertIsNotNone(main.Reporter.report('l2_norm'))
         self.assertEqual(main.Reporter.report('attribute_size'), 2)
 
+    def test_component_counts(self):
+        graph = Graph(reporter=main.Reporter)
+        n1 = Neuron()
+        n2 = Neuron()
+        n3 = Neuron()
+        graph.add_neuron('n1', n1)
+        graph.add_neuron('n2', n2)
+        graph.add_neuron('n3', n3)
+        s1 = Synapse()
+        s2 = Synapse()
+        graph.add_synapse('s1', 'n1', 'n2', s1)
+        graph.add_synapse('s2', 'n2', 'n3', s2)
+        weights = [torch.tensor([1.0], requires_grad=True), torch.tensor([2.0], requires_grad=True)]
+        A = [torch.tensor(2.0), torch.tensor(3.0)]
+        B = [torch.tensor(1.0), torch.tensor(1.5)]
+        gamma = torch.tensor(0.0)
+        lambda_ = torch.tensor(0.0)
+        neuron_components = [{'n1', 'n2'}, {'n3'}]
+        edge_components = [{'s1'}, {'s2'}]
+        calc = ComplexityCalculator(
+            A,
+            B,
+            gamma,
+            lambda_,
+            weights,
+            reporter=main.Reporter,
+            neuron_components=neuron_components,
+            edge_components=edge_components,
+        )
+        complexity = calc.compute(graph)
+        expected = (
+            torch.tensor(0.0)
+            + 3
+            + A[0] * 2
+            + B[0] * 1
+            + A[1] * 1
+            + B[1] * 1
+        )
+        self.assertTrue(torch.allclose(complexity, expected))
+        self.assertEqual(main.Reporter.report('neuron_count_0'), 2)
+        self.assertEqual(main.Reporter.report('edge_count_1'), 1)
+
 
 if __name__ == '__main__':
     unittest.main()
