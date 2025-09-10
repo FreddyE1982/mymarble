@@ -203,6 +203,7 @@ class Graph:
         method="exact",
         cost_params=None,
         sample_params=None,
+        sample=None,
         global_loss_target=None,
         activations=None,
         evolution_instructions=None,
@@ -217,6 +218,10 @@ class Graph:
             Overrides for cost calculation parameters.
         sample_params : dict, optional
             Overrides for sampling parameters when ``method="soft"``.
+        sample : object, optional
+            Single training sample propagated along the selected path. When
+            provided, neurons and synapses derive their local loss and cost via
+            ``compute_sample_loss`` and ``compute_sample_cost`` respectively.
         global_loss_target : object, optional
             Accepted for backward compatibility. Currently unused.
         activations : dict, optional
@@ -311,6 +316,13 @@ class Graph:
                         )
                     syn_map[sid] = synapse
                 self._latency_estimator.update(nid, neuron, syn_map)
+        if sampled and sample is not None:
+            for i in range(0, len(sampled), 2):
+                neuron = sampled[i]
+                neuron.compute_sample_loss(sample)
+                if i + 1 < len(sampled):
+                    synapse = sampled[i + 1]
+                    synapse.compute_sample_cost(sample)
         if sampled and self._path_forwarder is not None:
             neuron_sequence = []
             step_losses = []
@@ -362,7 +374,8 @@ class Graph:
         if sampled:
             for element in sampled:
                 if hasattr(element, "update_cost"):
-                    element.update_cost(chosen_cost)
+                    if not (sample is not None and hasattr(element, "cost_fn")):
+                        element.update_cost(chosen_cost)
                 if hasattr(element, "update_next_min_loss"):
                     element.update_next_min_loss(chosen_cost)
         import torch  # local import

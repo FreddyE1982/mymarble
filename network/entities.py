@@ -102,6 +102,28 @@ class Neuron:
     def record_local_loss(self, tensor):
         self.last_local_loss = tensor
 
+    def compute_sample_loss(self, sample):
+        """Compute and record loss for a given sample.
+
+        This method dispatches to an optional ``loss_fn`` attribute on the
+        neuron.  When provided and callable, it is invoked with ``self`` and
+        ``sample`` to obtain the loss tensor.  The resulting value is recorded
+        via :meth:`record_local_loss` and reported through the associated
+        reporter.  If no function is supplied the previously stored
+        ``last_local_loss`` is returned unchanged.
+        """
+        fn = getattr(self, "loss_fn", None)
+        if callable(fn):
+            loss = fn(self, sample)
+            self.record_local_loss(loss)
+            if self._reporter is not None:
+                self._reporter.report(
+                    f"neuron_{id(self)}_sample_loss",
+                    "Local loss computed for neuron from sample",
+                    loss,
+                )
+        return self.last_local_loss
+
     def update_next_min_loss(self, tensor):
         self.next_min_loss = tensor
 
@@ -304,6 +326,27 @@ class Synapse:
 
     def update_cost(self, tensor):
         self.c_e = tensor
+
+    def compute_sample_cost(self, sample):
+        """Compute and record cost for a given sample.
+
+        An optional ``cost_fn`` attribute may be attached to the synapse. When
+        callable it is invoked with ``self`` and ``sample`` to produce the cost
+        tensor which is then stored via :meth:`update_cost`.  The computed cost
+        is reported through the configured reporter.  If no function is
+        provided the existing ``c_e`` value is returned unchanged.
+        """
+        fn = getattr(self, "cost_fn", None)
+        if callable(fn):
+            cost = fn(self, sample)
+            self.update_cost(cost)
+            if self._reporter is not None:
+                self._reporter.report(
+                    f"synapse_{id(self)}_sample_cost",
+                    "Cost computed for synapse from sample",
+                    cost,
+                )
+        return self.c_e
 
     def update_weight(self, tensor, reporter=None):
         self.weight = tensor
