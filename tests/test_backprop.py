@@ -101,5 +101,52 @@ class TestBackpropWorkflow(unittest.TestCase):
         self.assertTrue(torch.all(Reporter.report("lr_e") == lr_e))
 
 
+    def test_vector_local_losses(self):
+        n = Neuron(zero=self.zero)
+        n.update_gate(torch.tensor(1.0))
+        w = torch.tensor([1.0, 2.0], requires_grad=True)
+        n.update_weight(w, reporter=Reporter)
+        n.record_local_loss(n.weight ** 2)
+
+        g = Graph(reporter=Reporter)
+        g.add_neuron("n", n)
+
+        bp = Backpropagator(reporter=Reporter)
+        path = [n]
+        gates = bp.build_active_subgraph(g, path, "hard")
+        loss = bp.compute_sample_loss(g, gates)
+        print("Vector loss:", loss)
+        active = {"graph": g, "g_v": gates["g_v"], "g_e": gates["g_e"], "loss": loss}
+        grads = bp.compute_gradients(active)
+        print("Vector gradients:", grads)
+        expected_grad = torch.autograd.grad(loss.sum(), n.weight)[0]
+        self.assertTrue(torch.allclose(grads["neurons"]["n"], expected_grad))
+
+    def test_vector_synapse_costs(self):
+        n1 = Neuron(zero=self.zero)
+        n2 = Neuron(zero=self.zero)
+        s = Synapse(zero=self.zero)
+        s.gate = torch.tensor(1.0)
+        w = torch.tensor([1.0, -1.0], requires_grad=True)
+        s.update_weight(w, reporter=Reporter)
+        s.update_cost(s.weight ** 2)
+
+        g = Graph(reporter=Reporter)
+        g.add_neuron("n1", n1)
+        g.add_neuron("n2", n2)
+        g.add_synapse("s", "n1", "n2", s)
+
+        bp = Backpropagator(reporter=Reporter)
+        path = [n1, s, n2]
+        gates = bp.build_active_subgraph(g, path, "hard")
+        loss = bp.compute_sample_loss(g, gates)
+        print("Synapse vector loss:", loss)
+        active = {"graph": g, "g_v": gates["g_v"], "g_e": gates["g_e"], "loss": loss}
+        grads = bp.compute_gradients(active)
+        print("Synapse vector gradients:", grads)
+        expected_grad = torch.autograd.grad(loss.sum(), s.weight)[0]
+        self.assertTrue(torch.allclose(grads["synapses"]["s"], expected_grad))
+
+
 if __name__ == "__main__":
     unittest.main()
