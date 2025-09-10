@@ -74,3 +74,61 @@ class LatencyEstimator:
                     lat_tensor,
                 )
         return latency_tensor
+
+    def peek(self, neuron_id, neuron, synapses):
+        """Temporarily assign latency values without mutating state.
+
+        Parameters
+        ----------
+        neuron_id : hashable
+            Identifier of the neuron being inspected.
+        neuron : :class:`network.entities.Neuron`
+            The neuron whose latency is estimated.
+        synapses : dict
+            Mapping ``{synapse_id: synapse}`` of outgoing synapses for which
+            latency should be estimated.
+
+        Returns
+        -------
+        tuple
+            ``(neuron_latency, {sid: (lambda_e, c_e)})`` capturing the original
+            latency and cost values so they can be restored using
+            :meth:`restore`.
+        """
+        now = self._now()
+        last = self._neuron_times.get(neuron_id, now)
+        latency = now - last
+        latency_tensor = self._zero + latency
+        original_neuron = getattr(neuron, "lambda_v", self._zero)
+        neuron.update_latency(latency_tensor)
+        syn_backup = {}
+        for sid, syn in synapses.items():
+            last_s = self._synapse_times.get(sid, now)
+            lat_s = now - last_s
+            lat_tensor = self._zero + lat_s
+            syn_backup[sid] = (
+                getattr(syn, "lambda_e", self._zero),
+                getattr(syn, "c_e", self._zero),
+            )
+            syn.update_latency(lat_tensor)
+            syn.update_cost(lat_tensor)
+        return original_neuron, syn_backup
+
+    def restore(self, neuron, synapses, backup):
+        """Restore latency values recorded by :meth:`peek`.
+
+        Parameters
+        ----------
+        neuron : :class:`network.entities.Neuron`
+            The neuron whose latency should be restored.
+        synapses : dict
+            Mapping ``{synapse_id: synapse}`` of outgoing synapses.
+        backup : tuple
+            Data returned by :meth:`peek` used to restore original state.
+        """
+        original_neuron, syn_backup = backup
+        neuron.update_latency(original_neuron)
+        for sid, syn in synapses.items():
+            lambda_e, cost = syn_backup.get(sid, (self._zero, self._zero))
+            syn.update_latency(lambda_e)
+            syn.update_cost(cost)
