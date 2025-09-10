@@ -1,0 +1,92 @@
+"""Directed multigraph managing neurons and synapses.
+
+The :class:`Graph` class provides management utilities for registering neurons
+and synapses and for navigating the connections between them.  The
+implementation is import free and agnostic regarding the concrete tensor
+implementation used inside the entities.  Objects of type :class:`Neuron` and
+:class:`Synapse` are expected to be created by the caller and supplied to the
+graph.
+"""
+
+
+class Graph:
+    """A directed multigraph of neurons and synapses."""
+
+    def __init__(self):
+        self.neurons = {}
+        self.synapses = {}
+        self._outgoing = {}
+        self._incoming = {}
+
+    def add_neuron(self, neuron_id, neuron):
+        """Add a neuron to the graph."""
+        if neuron_id in self.neurons:
+            raise ValueError("Neuron already exists")
+        self.neurons[neuron_id] = neuron
+        self._outgoing[neuron_id] = {}
+        self._incoming[neuron_id] = {}
+
+    def remove_neuron(self, neuron_id):
+        if neuron_id not in self.neurons:
+            return
+        for syn_id in list(self._collect_synapses(neuron_id)):
+            self.remove_synapse(syn_id)
+        del self.neurons[neuron_id]
+        del self._outgoing[neuron_id]
+        del self._incoming[neuron_id]
+
+    def add_synapse(self, synapse_id, source_id, target_id, synapse):
+        """Add a synapse connecting ``source_id`` to ``target_id``."""
+        if synapse_id in self.synapses:
+            raise ValueError("Synapse already exists")
+        if source_id not in self.neurons or target_id not in self.neurons:
+            raise KeyError("Both neurons must exist before adding synapse")
+        self.synapses[synapse_id] = (source_id, target_id, synapse)
+        self._outgoing[source_id].setdefault(target_id, []).append(synapse_id)
+        self._incoming[target_id].setdefault(source_id, []).append(synapse_id)
+
+    def remove_synapse(self, synapse_id):
+        if synapse_id not in self.synapses:
+            return
+        src, tgt, _ = self.synapses.pop(synapse_id)
+        outs = self._outgoing.get(src, {}).get(tgt, [])
+        if synapse_id in outs:
+            outs.remove(synapse_id)
+            if not outs:
+                del self._outgoing[src][tgt]
+        ins = self._incoming.get(tgt, {}).get(src, [])
+        if synapse_id in ins:
+            ins.remove(synapse_id)
+            if not ins:
+                del self._incoming[tgt][src]
+
+    def get_neuron(self, neuron_id):
+        return self.neurons.get(neuron_id)
+
+    def get_synapse(self, synapse_id):
+        meta = self.synapses.get(synapse_id)
+        if meta is None:
+            return None
+        return meta[2]
+
+    def outgoing(self, neuron_id):
+        edges = self._outgoing.get(neuron_id, {})
+        return [(tgt, [self.synapses[sid][2] for sid in sids]) for tgt, sids in edges.items()]
+
+    def incoming(self, neuron_id):
+        edges = self._incoming.get(neuron_id, {})
+        return [(src, [self.synapses[sid][2] for sid in sids]) for src, sids in edges.items()]
+
+    def get_synapses(self, source_id, target_id):
+        ids = self._outgoing.get(source_id, {}).get(target_id, [])
+        return [self.synapses[sid][2] for sid in ids]
+
+    def _collect_synapses(self, neuron_id):
+        outs = self._outgoing.get(neuron_id, {})
+        ins = self._incoming.get(neuron_id, {})
+        for sids in outs.values():
+            for sid in sids:
+                yield sid
+        for sids in ins.values():
+            for sid in sids:
+                yield sid
