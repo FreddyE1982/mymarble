@@ -86,6 +86,31 @@ class TestGraphEntities(unittest.TestCase):
         self.assertIn("measured_time", snapshot)
         self.assertIn("loss_decrease_speed", snapshot)
 
+    def test_loss_speed_accumulates_multiple_steps(self):
+        n = Neuron(zero=self.zero)
+        # establish initial activation so that previous timestamp and cumulative
+        # loss are persisted
+        n.record_activation(self.zero, self.zero, reporter=main.Reporter)
+        # simulate two loss updates prior to the next activation
+        n.update_cumulative_loss(torch.tensor(1.0), reporter=main.Reporter)
+        n.update_cumulative_loss(torch.tensor(2.0), reporter=main.Reporter)
+        n.record_activation(
+            torch.tensor(3.0), torch.tensor(3.0), reporter=main.Reporter
+        )
+        expected_speed = (1.0 + 2.0) / 3.0
+        speed_metric = main.Reporter.report(
+            f"neuron_{id(n)}_loss_decrease_speed"
+        )
+        print("Accumulated loss decrease speed:", speed_metric)
+        self.assertAlmostEqual(speed_metric.item(), expected_speed)
+        self.assertAlmostEqual(n.loss_decrease_speed.item(), expected_speed)
+        snapshot = n.to_dict()
+        print("Snapshot after accumulated activation:", snapshot)
+        self.assertIn("prev_cumulative_loss", snapshot)
+        self.assertAlmostEqual(
+            snapshot["prev_cumulative_loss"].item(), n.cumulative_loss.item()
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
