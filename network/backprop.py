@@ -112,87 +112,134 @@ class Backpropagator:
             )
         return loss
 
-    def compute_gradients(self, graph, gates, loss=None):
-        """Compute gradients for weights with explicit regularisation terms.
+    def compute_gradients(self, active_subgraph):
+        """Compute gradients for all weights in the active subgraph.
 
         Parameters
         ----------
-        graph : network.graph.Graph
-            Graph containing neurons and synapses.
-        gates : dict
-            Dictionary with ``g_v`` and ``g_e`` entries as produced by
-            :meth:`build_active_subgraph`.
-        loss : torch.Tensor, optional
-            Precomputed sample loss.  When ``None`` the loss is recomputed
-            using :meth:`compute_sample_loss`.
+        active_subgraph : dict
+            Dictionary containing at least ``graph`` alongside ``g_v`` and
+            ``g_e`` entries describing the active vertices and edges.  A
+            precomputed ``loss`` term can optionally be supplied.
 
         Returns
         -------
         dict
-            Mapping with ``neurons`` and ``synapses`` entries that associate
-            identifiers to their respective gradient tensors.
+            Mapping with ``neurons`` and ``synapses`` entries where each
+            identifier is associated with its gradient tensor.
         """
         import torch  # local import
 
-        if loss is None:
-            loss = self.compute_sample_loss(graph, gates)
+        graph = active_subgraph.get("graph")
+        g_v = active_subgraph.get("g_v", {})
+        g_e = active_subgraph.get("g_e", {})
+        loss = active_subgraph.get("loss")
 
-        weights = []
-        meta = []
-        g_v = gates.get("g_v", {})
-        g_e = gates.get("g_e", {})
+        if graph is None:
+            return {"neurons": {}, "synapses": {}}
+
+        if loss is None:
+            loss = self.compute_sample_loss(graph, active_subgraph)
+
         zero = torch.tensor(0.0)
+        result = {"neurons": {}, "synapses": {}}
 
         for nid, neuron in graph.neurons.items():
-            w = getattr(neuron, "weight", None)
-            if w is None or not hasattr(w, "requires_grad"):
-                continue
-            weights.append(w)
-            lam = getattr(neuron, "lambda_v", zero)
             gate = g_v.get(nid, zero)
-            meta.append(("neurons", nid, neuron, w, gate, lam))
+            value = gate.detach() if hasattr(gate, "detach") else gate
+            if hasattr(value, "abs"):
+                active = bool(value.abs().sum().item())
+            else:
+                active = bool(value)
+            if not active:
+                continue
+
+            w_v = getattr(neuron, "weight", None)
+            if w_v is None or not getattr(w_v, "requires_grad", False):
+                continue
+            l_v = getattr(neuron, "last_local_loss", zero)
+            lam = getattr(neuron, "lambda_v", zero)
+
+            dC_dy = torch.autograd.grad(
+                loss, l_v, retain_graph=True, allow_unused=True
+            )[0]
+            dY_dw = torch.autograd.grad(
+                l_v, w_v, retain_graph=True, allow_unused=True
+            )[0]
+            if dC_dy is None:
+                dC_dy = torch.zeros_like(w_v)
+            if dY_dw is None:
+                dY_dw = torch.zeros_like(w_v)
+            first_term = dC_dy * dY_dw
+
+            norm1 = w_v.abs().sum()
+            grad_norm1 = torch.autograd.grad(
+                norm1, w_v, retain_graph=True, allow_unused=True
+            )[0]
+            if grad_norm1 is None:
+                grad_norm1 = torch.zeros_like(w_v)
+            l1_term = lam * grad_norm1
+
+            norm2 = 0.5 * w_v.pow(2).sum()
+            grad_norm2 = torch.autograd.grad(
+                norm2, w_v, retain_graph=True, allow_unused=True
+            )[0]
+            if grad_norm2 is None:
+                grad_norm2 = torch.zeros_like(w_v)
+            l2_term = lam * grad_norm2
+
+            grad = first_term + l1_term + l2_term
+            result["neurons"][nid] = grad
+            if self._reporter is not None:
+                self._reporter.report(
+                    f"neuron_{id(neuron)}_grad_norm",
+                    "Gradient norm for neuron weight",
+                    torch.norm(grad).detach(),
+                )
 
         for sid, (_, _, synapse) in graph.synapses.items():
-            w = getattr(synapse, "weight", None)
-            if w is None or not hasattr(w, "requires_grad"):
-                continue
-            weights.append(w)
-            lam = getattr(synapse, "lambda_e", zero)
             gate = g_e.get(sid, zero)
-            meta.append(("synapses", sid, synapse, w, gate, lam))
-
-        grads = []
-        if weights:
-            grads = list(
-                torch.autograd.grad(
-                    loss, weights, allow_unused=True, retain_graph=True
-                )
-            )
-
-        result = {"neurons": {}, "synapses": {}}
-        for (kind, identifier, obj, w, gate, lam), grad in zip(meta, grads):
-            if grad is None:
-                grad = torch.zeros_like(w)
-            lam_t = lam if hasattr(lam, "shape") else torch.tensor(lam, dtype=w.dtype, device=w.device)
-            if kind == "neurons":
-                l1 = gate * lam_t * torch.sign(w)
-                l2 = gate * lam_t * w
-                grad = grad + l1 + l2
-                result["neurons"][identifier] = grad
-                if self._reporter is not None:
-                    self._reporter.report(
-                        f"neuron_{id(obj)}_grad_norm",
-                        "Gradient norm for neuron weight",
-                        torch.norm(grad).detach(),
-                    )
+            value = gate.detach() if hasattr(gate, "detach") else gate
+            if hasattr(value, "abs"):
+                active = bool(value.abs().sum().item())
             else:
-                l2 = gate * lam_t * w
-                grad = grad + l2
-                result["synapses"][identifier] = grad
-                if self._reporter is not None:
-                    self._reporter.report(
-                        f"synapse_{id(obj)}_grad_norm",
-                        "Gradient norm for synapse weight",
-                        torch.norm(grad).detach(),
-                    )
+                active = bool(value)
+            if not active:
+                continue
+
+            w_e = getattr(synapse, "weight", None)
+            if w_e is None or not getattr(w_e, "requires_grad", False):
+                continue
+            c_e = getattr(synapse, "c_e", zero)
+            lam = getattr(synapse, "lambda_e", zero)
+
+            dC_dy = torch.autograd.grad(
+                loss, c_e, retain_graph=True, allow_unused=True
+            )[0]
+            dY_dw = torch.autograd.grad(
+                c_e, w_e, retain_graph=True, allow_unused=True
+            )[0]
+            if dC_dy is None:
+                dC_dy = torch.zeros_like(w_e)
+            if dY_dw is None:
+                dY_dw = torch.zeros_like(w_e)
+            first_term = dC_dy * dY_dw
+
+            norm2 = 0.5 * w_e.pow(2).sum()
+            grad_norm2 = torch.autograd.grad(
+                norm2, w_e, retain_graph=True, allow_unused=True
+            )[0]
+            if grad_norm2 is None:
+                grad_norm2 = torch.zeros_like(w_e)
+            l2_term = lam * grad_norm2
+
+            grad = first_term + l2_term
+            result["synapses"][sid] = grad
+            if self._reporter is not None:
+                self._reporter.report(
+                    f"synapse_{id(synapse)}_grad_norm",
+                    "Gradient norm for synapse weight",
+                    torch.norm(grad).detach(),
+                )
+
         return result

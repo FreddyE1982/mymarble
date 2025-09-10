@@ -80,19 +80,18 @@ class TestBackpropagator(unittest.TestCase):
         bp = Backpropagator(reporter=Reporter)
         gates = bp.build_active_subgraph(g, path, "soft")
         loss = bp.compute_sample_loss(g, gates)
-        grads = bp.compute_gradients(g, gates, loss)
+        active = {"graph": g, "g_v": gates["g_v"], "g_e": gates["g_e"], "loss": loss}
+        grads = bp.compute_gradients(active)
 
         total_cost = loss
         for nid, neuron in g.neurons.items():
-            gate = gates["g_v"][nid]
             lam = neuron.lambda_v
             w = neuron.weight
-            total_cost = total_cost + gate * lam * (torch.abs(w) + 0.5 * w.pow(2))
+            total_cost = total_cost + lam * (torch.abs(w) + 0.5 * w.pow(2))
         for sid, (_, _, synapse) in g.synapses.items():
-            gate = gates["g_e"][sid]
             lam = synapse.lambda_e
             w = synapse.weight
-            total_cost = total_cost + gate * lam * 0.5 * w.pow(2)
+            total_cost = total_cost + lam * 0.5 * w.pow(2)
 
         expected_grads = torch.autograd.grad(
             total_cost,
