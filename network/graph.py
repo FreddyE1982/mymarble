@@ -179,15 +179,6 @@ class Graph:
         """
         if activations is None:
             activations = {}
-        for nid, neuron in self.neurons.items():
-            outgoing = self._outgoing.get(nid, {})
-            syn_map = {
-                sid: self.synapses[sid][2]
-                for sids in outgoing.values()
-                for sid in sids
-            }
-            if self._latency_estimator is not None:
-                self._latency_estimator.update(nid, neuron, syn_map)
         cost_defaults = {
             "lambda_0": 0,
             "lambda_max": 0,
@@ -234,6 +225,22 @@ class Graph:
                 chosen_cost = c
                 chosen_latency = l
                 break
+        if sampled and self._latency_estimator is not None:
+            for i in range(0, len(sampled), 2):
+                neuron = sampled[i]
+                nid = getattr(neuron, "id", None)
+                if nid is None:
+                    nid = next(k for k, v in self.neurons.items() if v is neuron)
+                syn_map = {}
+                if i + 1 < len(sampled):
+                    synapse = sampled[i + 1]
+                    sid = getattr(synapse, "id", None)
+                    if sid is None:
+                        sid = next(
+                            k for k, meta in self.synapses.items() if meta[2] is synapse
+                        )
+                    syn_map[sid] = synapse
+                self._latency_estimator.update(nid, neuron, syn_map)
         if self._reporter is not None:
             self._reporter.report(
                 "entry_id",
