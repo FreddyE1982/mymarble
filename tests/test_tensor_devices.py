@@ -3,6 +3,7 @@ import sys
 import pathlib
 import torch
 import json
+import os
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parent.parent))
 from poted.pipeline import JsonSerializer
@@ -136,3 +137,23 @@ class TestAutomaticFallback(unittest.TestCase):
         print('Fallback registered device:', registered_device)
         self.assertEqual(registered_device, 'cpu')
         self.assertEqual(main.Reporter.report('device_fallbacks'), 1)
+
+
+class TestDiskTensorMigration(unittest.TestCase):
+    def setUp(self):
+        main.Reporter._metrics = {}
+
+    def test_migrates_real_tensor_to_disk(self):
+        devices = [main.MemoryDevice('cpu', 1024), main.MemoryDevice('disk', 10**9)]
+        balancer = main.TensorLoadBalancer(devices)
+        t = torch.randn(512, device='cpu')
+        balancer.register(t)
+        meta = balancer._registry[id(t)]
+        path = meta['path']
+        print('Stored path:', path)
+        print('Disk writes:', main.Reporter.report('disk_writes'))
+        self.assertTrue(os.path.exists(path))
+        self.assertEqual(meta['device'].name, 'disk')
+        self.assertEqual(t.nelement(), 0)
+        balancer.unregister(t)
+        self.assertFalse(os.path.exists(path))
