@@ -11,7 +11,12 @@ class JsonSerializer:
             if isinstance(o, np.ndarray):
                 return {"__ndarray__": o.tolist(), "dtype": str(o.dtype)}
             if isinstance(o, torch.Tensor):
-                return {"__torch_tensor__": o.tolist(), "dtype": str(o.dtype)}
+                return {
+                    "__torch_tensor__": o.tolist(),
+                    "dtype": str(o.dtype),
+                    "device": str(o.device),
+                    "requires_grad": o.requires_grad,
+                }
             raise TypeError(
                 f"Object of type {type(o).__name__} is not JSON serializable"
             )
@@ -30,7 +35,14 @@ class JsonSerializer:
             if "__torch_tensor__" in d:
                 dtype_name = d.get("dtype", "float")
                 dtype = getattr(torch, dtype_name.split(".")[-1])
-                return torch.tensor(d["__torch_tensor__"], dtype=dtype)
+                device = torch.device(d.get("device", "cpu"))
+                requires_grad = d.get("requires_grad", False)
+                return torch.tensor(
+                    d["__torch_tensor__"],
+                    dtype=dtype,
+                    device=device,
+                    requires_grad=requires_grad,
+                )
             return d
 
         text = stream.decode("utf-8")
