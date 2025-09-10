@@ -39,6 +39,18 @@ class TestLossTracker(unittest.TestCase):
         self.assertFalse(avg.requires_grad)
         self.assertFalse(neuron.last_local_loss.requires_grad)
 
+    def test_eq_01_updates(self):
+        reporter = main.Reporter
+        neuron = Neuron()
+        tracker = LossTracker(reporter, zero=torch.tensor(0.0))
+        tracker.update_loss(neuron, [torch.tensor(1.0), torch.tensor(3.0)])
+        tracker.update_loss(neuron, [torch.tensor(3.0), torch.tensor(5.0)])
+        stats = tracker.get_stats(neuron)
+        print('Tracker stats:', stats)
+        self.assertEqual(stats['t'], 2)
+        self.assertEqual(stats['m'], 4)
+        self.assertAlmostEqual(stats['avg'].item(), 3.0, places=5)
+
 
 if __name__ == '__main__':
     unittest.main()
