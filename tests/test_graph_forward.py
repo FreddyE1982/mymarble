@@ -21,9 +21,12 @@ class TestGraphForward(unittest.TestCase):
         n1.lambda_v = torch.tensor(0.2)
         n2.last_local_loss = torch.tensor(0.0)
         n2.lambda_v = torch.tensor(0.3)
+        n1.update_weight(torch.tensor(1.0))
+        n2.update_weight(torch.tensor(1.0))
         s1 = Synapse(zero=zero)
         s1.c_e = torch.tensor(0.2)
         s1.lambda_e = torch.tensor(0.4)
+        s1.update_weight(torch.tensor(1.0))
         Reporter._metrics = {}
         g = Graph(reporter=Reporter)
         g.add_neuron("n1", n1)
@@ -58,9 +61,12 @@ class TestGraphForward(unittest.TestCase):
         n1.lambda_v = torch.tensor(0.2)
         n2.last_local_loss = torch.tensor(0.0)
         n2.lambda_v = torch.tensor(0.3)
+        n1.update_weight(torch.tensor(1.0))
+        n2.update_weight(torch.tensor(1.0))
         s1 = Synapse(zero=zero)
         s1.c_e = torch.tensor(0.2)
         s1.lambda_e = torch.tensor(0.4)
+        s1.update_weight(torch.tensor(1.0))
         Reporter._metrics = {}
         g = Graph(reporter=Reporter)
         g.add_neuron("n1", n1)
@@ -109,6 +115,18 @@ class TestGraphForward(unittest.TestCase):
         self.assertEqual(
             Reporter.report(f"synapse_{id(s1)}_weight").item(), 4.0
         )
+
+    def test_forward_requires_weights(self):
+        zero = torch.tensor(0.0)
+        n1 = Neuron(zero=zero)
+        n2 = Neuron(zero=zero)
+        s1 = Synapse(zero=zero)
+        g = Graph()
+        g.add_neuron("n1", n1)
+        g.add_neuron("n2", n2)
+        g.add_synapse("s1", "n1", "n2", s1)
+        with self.assertRaises(ValueError):
+            g.forward(method="exact")
 
 
 if __name__ == "__main__":
