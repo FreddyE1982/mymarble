@@ -10,8 +10,9 @@ class Backpropagator:
     comply with repository constraints.
     """
 
-    def __init__(self, reporter=None):
+    def __init__(self, reporter=None, optimizer=None):
         self._reporter = reporter
+        self._optimizer = optimizer
 
     def build_active_subgraph(self, graph, path, routing_mode):
         """Create gate tensors for the active subgraph.
@@ -243,3 +244,104 @@ class Backpropagator:
                 )
 
         return result
+
+    def apply_updates(self, active_subgraph, lr_v, lr_e, optimizer=None):
+        """Apply gradient updates to weights in the active subgraph.
+
+        Parameters
+        ----------
+        active_subgraph : dict
+            Dictionary containing ``graph`` and ``grads`` mappings.
+        lr_v : object
+            Learning rate for neuron weights.
+        lr_e : object
+            Learning rate for synapse weights.
+        optimizer : object, optional
+            Optimizer instance from :mod:`torch.optim`.  When provided, it is
+            used for the update step; otherwise manual SGD is executed.
+        """
+        import torch  # local import
+
+        graph = active_subgraph.get("graph")
+        grads = active_subgraph.get("grads", {})
+        if graph is None or not grads:
+            return
+
+        opt = optimizer if optimizer is not None else self._optimizer
+        neuron_grads = grads.get("neurons", {})
+        synapse_grads = grads.get("synapses", {})
+
+        if opt is not None:
+            for nid, grad in neuron_grads.items():
+                neuron = graph.neurons.get(nid)
+                w = getattr(neuron, "weight", None)
+                if w is None:
+                    continue
+                w.grad = grad
+            for sid, grad in synapse_grads.items():
+                synapse = graph.synapses.get(sid)[2]
+                w = getattr(synapse, "weight", None)
+                if w is None:
+                    continue
+                w.grad = grad
+            opt.step()
+            opt.zero_grad()
+            if self._reporter is not None:
+                for idx, group in enumerate(opt.param_groups):
+                    lr = group.get("lr")
+                    self._reporter.report(
+                        f"optimizer_lr_{idx}",
+                        f"Learning rate for optimizer param group {idx}",
+                        lr,
+                    )
+                for nid, neuron in graph.neurons.items():
+                    w = getattr(neuron, "weight", None)
+                    self._reporter.report(
+                        f"neuron_{id(neuron)}_weight_norm_post",
+                        "Post-update weight norm for neuron",
+                        torch.norm(w).detach(),
+                    )
+                for sid, (_, _, synapse) in graph.synapses.items():
+                    w = getattr(synapse, "weight", None)
+                    self._reporter.report(
+                        f"synapse_{id(synapse)}_weight_norm_post",
+                        "Post-update weight norm for synapse",
+                        torch.norm(w).detach(),
+                    )
+            return
+
+        if self._reporter is not None:
+            self._reporter.report(
+                "lr_v", "Learning rate for neuron weights", lr_v
+            )
+            self._reporter.report(
+                "lr_e", "Learning rate for synapse weights", lr_e
+            )
+
+        for nid, grad in neuron_grads.items():
+            neuron = graph.neurons.get(nid)
+            w = getattr(neuron, "weight", None)
+            if w is None:
+                continue
+            new_w = (w - lr_v * grad).detach().requires_grad_(True)
+            neuron.update_weight(new_w, reporter=self._reporter)
+            if self._reporter is not None:
+                self._reporter.report(
+                    f"neuron_{id(neuron)}_weight_norm_post",
+                    "Post-update weight norm for neuron",
+                    torch.norm(new_w).detach(),
+                )
+
+        for sid, grad in synapse_grads.items():
+            synapse = graph.synapses.get(sid)[2]
+            w = getattr(synapse, "weight", None)
+            if w is None:
+                continue
+            new_w = (w - lr_e * grad).detach().requires_grad_(True)
+            synapse.update_weight(new_w, reporter=self._reporter)
+            if self._reporter is not None:
+                self._reporter.report(
+                    f"synapse_{id(synapse)}_weight_norm_post",
+                    "Post-update weight norm for synapse",
+                    torch.norm(new_w).detach(),
+                )
