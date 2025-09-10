@@ -8,6 +8,7 @@ from network.graph import Graph
 from network.path_selector import PathSelector
 from network.learning import LossTracker
 from network.latency import LatencyEstimator
+from network.complexity import ComplexityCalculator
 
 
 class Reporter:
@@ -621,6 +622,24 @@ class Application:
             'latency_s2': Reporter.report('latency_synapse_s2'),
         }
         print('Graph metrics:', metrics)
+
+        A = [torch.tensor(1.0)]
+        B = [torch.tensor(1.0)]
+        gamma = torch.tensor(1.0)
+        lambda_ = torch.tensor(1.0)
+        weights = [torch.ones(1, requires_grad=True)]
+        attribute_sets = [set(graph.neurons.keys()), set(graph.synapses.keys())]
+        calculator = ComplexityCalculator(
+            A,
+            B,
+            gamma,
+            lambda_,
+            weights,
+            attribute_sets,
+            Reporter,
+        )
+        complexity_value = calculator.compute(graph)
+        print('Complexity:', complexity_value)
 
 
 if __name__ == '__main__':
