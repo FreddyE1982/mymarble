@@ -25,6 +25,8 @@ class Neuron:
         last_local_loss=None,
         next_min_loss=None,
         lambda_v=None,
+        cumulative_loss=None,
+        step_loss=None,
         zero=None,
     ):
         if zero is None:
@@ -37,6 +39,8 @@ class Neuron:
         self.last_local_loss = zero if last_local_loss is None else last_local_loss
         self.next_min_loss = zero if next_min_loss is None else next_min_loss
         self.lambda_v = zero if lambda_v is None else lambda_v
+        self.cumulative_loss = zero if cumulative_loss is None else cumulative_loss
+        self.step_loss = zero if step_loss is None else step_loss
 
     def reset(self):
         """Reset all dynamic tensors to the configured zero value."""
@@ -48,6 +52,8 @@ class Neuron:
         self.last_local_loss = zero
         self.next_min_loss = zero
         self.lambda_v = zero
+        self.cumulative_loss = zero
+        self.step_loss = zero
 
     def update_reset_state(self, tensor):
         self.reset_state = tensor
@@ -70,6 +76,23 @@ class Neuron:
     def update_latency(self, tensor):
         self.lambda_v = tensor
 
+    def update_cumulative_loss(self, loss_tensor):
+        detached_loss = loss_tensor.detach() if hasattr(loss_tensor, "detach") else loss_tensor
+        current = self.cumulative_loss.detach() if hasattr(self.cumulative_loss, "detach") else self.cumulative_loss
+        self.step_loss = detached_loss
+        self.cumulative_loss = current + detached_loss
+        from main import Reporter  # local import
+        Reporter.report(
+            f"neuron_{id(self)}_step_loss",
+            "Loss recorded for neuron at current step",
+            self.step_loss,
+        )
+        Reporter.report(
+            f"neuron_{id(self)}_cumulative_loss",
+            "Cumulative loss recorded for neuron",
+            self.cumulative_loss,
+        )
+
     def to_dict(self):
         """Return a dictionary snapshot of the neuron state."""
         return {
@@ -80,6 +103,8 @@ class Neuron:
             "last_local_loss": self.last_local_loss,
             "next_min_loss": self.next_min_loss,
             "lambda_v": self.lambda_v,
+            "cumulative_loss": self.cumulative_loss,
+            "step_loss": self.step_loss,
         }
 
 
