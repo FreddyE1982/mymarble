@@ -12,15 +12,19 @@ graph.
 class Graph:
     """A directed multigraph of neurons and synapses."""
 
-    def __init__(self, path_selector=None):
+    def __init__(self, path_selector=None, latency_estimator=None, reporter=None):
         self.neurons = {}
         self.synapses = {}
         self._outgoing = {}
         self._incoming = {}
         if path_selector is None:
             from .path_selector import PathSelector  # local import to avoid module level dependency
-            path_selector = PathSelector()
+            path_selector = PathSelector(reporter=reporter)
         self._path_selector = path_selector
+        if latency_estimator is None:
+            from .latency import LatencyEstimator  # local import to avoid module level dependency
+            latency_estimator = LatencyEstimator(reporter=reporter)
+        self._latency_estimator = latency_estimator
 
     def add_neuron(self, neuron_id, neuron):
         """Add a neuron to the graph."""
@@ -119,7 +123,9 @@ class Graph:
             outgoing_ids = []
             for sids in self._outgoing.get(nid, {}).values():
                 outgoing_ids.extend(sids)
-            synapses = [self.synapses[sid][2] for sid in outgoing_ids]
+            synapse_map = {sid: self.synapses[sid][2] for sid in outgoing_ids}
+            self._latency_estimator.update(nid, neuron, synapse_map)
+            synapses = list(synapse_map.values())
             state = {
                 "outgoing_synapses": synapses,
                 "activation_tensors": activations.get(nid, {}),

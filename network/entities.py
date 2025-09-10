@@ -24,6 +24,7 @@ class Neuron:
         path_preactivation=None,
         last_local_loss=None,
         next_min_loss=None,
+        lambda_v=None,
         zero=None,
     ):
         if zero is None:
@@ -35,6 +36,7 @@ class Neuron:
         self.path_preactivation = zero if path_preactivation is None else path_preactivation
         self.last_local_loss = zero if last_local_loss is None else last_local_loss
         self.next_min_loss = zero if next_min_loss is None else next_min_loss
+        self.lambda_v = zero if lambda_v is None else lambda_v
 
     def reset(self):
         """Reset all dynamic tensors to the configured zero value."""
@@ -45,6 +47,7 @@ class Neuron:
         self.path_preactivation = zero
         self.last_local_loss = zero
         self.next_min_loss = zero
+        self.lambda_v = zero
 
     def update_reset_state(self, tensor):
         self.reset_state = tensor
@@ -64,6 +67,9 @@ class Neuron:
     def update_next_min_loss(self, tensor):
         self.next_min_loss = tensor
 
+    def update_latency(self, tensor):
+        self.lambda_v = tensor
+
     def to_dict(self):
         """Return a dictionary snapshot of the neuron state."""
         return {
@@ -73,6 +79,7 @@ class Neuron:
             "path_preactivation": self.path_preactivation,
             "last_local_loss": self.last_local_loss,
             "next_min_loss": self.next_min_loss,
+            "lambda_v": self.lambda_v,
         }
 
 
