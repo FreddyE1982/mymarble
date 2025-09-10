@@ -42,7 +42,7 @@ class TestGraphEntities(unittest.TestCase):
 
     def test_cumulative_loss_tracking(self):
         n = Neuron(zero=self.zero)
-        n.update_cumulative_loss(torch.tensor(1.5))
+        n.update_cumulative_loss(torch.tensor(1.5), reporter=main.Reporter)
         self.assertAlmostEqual(n.step_loss.item(), 1.5)
         self.assertAlmostEqual(n.cumulative_loss.item(), 1.5)
         step_metric = main.Reporter.report(f"neuron_{id(n)}_step_loss")
@@ -51,7 +51,7 @@ class TestGraphEntities(unittest.TestCase):
         print("Recorded cumulative loss:", cum_metric)
         self.assertAlmostEqual(step_metric.item(), 1.5)
         self.assertAlmostEqual(cum_metric.item(), 1.5)
-        n.update_cumulative_loss(torch.tensor(2.0))
+        n.update_cumulative_loss(torch.tensor(2.0), reporter=main.Reporter)
         self.assertAlmostEqual(n.step_loss.item(), 2.0)
         self.assertAlmostEqual(n.cumulative_loss.item(), 3.5)
         step_metric = main.Reporter.report(f"neuron_{id(n)}_step_loss")
@@ -70,8 +70,10 @@ class TestGraphEntities(unittest.TestCase):
 
     def test_activation_recording(self):
         n = Neuron(zero=self.zero)
-        n.update_cumulative_loss(torch.tensor(1.0))
-        n.record_activation(torch.tensor(1.0), torch.tensor(2.0))
+        n.update_cumulative_loss(torch.tensor(1.0), reporter=main.Reporter)
+        n.record_activation(
+            torch.tensor(1.0), torch.tensor(2.0), reporter=main.Reporter
+        )
         self.assertAlmostEqual(n.timestamp.item(), 1.0)
         self.assertAlmostEqual(n.measured_time.item(), 2.0)
         speed_metric = main.Reporter.report(f"neuron_{id(n)}_loss_decrease_speed")
