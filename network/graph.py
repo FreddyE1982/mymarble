@@ -20,6 +20,7 @@ class Graph:
         path_forwarder=None,
         latency_estimator=None,
         reporter=None,
+        routing_adjuster=None,
     ):
         self.neurons = {}
         self.synapses = {}
@@ -52,6 +53,10 @@ class Graph:
             from .latency import LatencyEstimator  # local import
             latency_estimator = LatencyEstimator(reporter=reporter)
         self._latency_estimator = latency_estimator
+        if routing_adjuster is None:
+            from routing.improvements import GateAdjuster  # local import
+            routing_adjuster = GateAdjuster(reporter=reporter)
+        self._routing_adjuster = routing_adjuster
 
     def add_neuron(self, neuron_id, neuron):
         """Add a neuron to the graph."""
@@ -251,6 +256,27 @@ class Graph:
             neuron_sequence = [sampled[i] for i in range(0, len(sampled), 2)]
             step_losses = [getattr(n, "last_local_loss", 0) for n in neuron_sequence]
             telemetry = self._path_forwarder.run(neuron_sequence, step_losses)
+            if self._routing_adjuster is not None and neuron_sequence:
+                import torch  # local import
+                per_cost = (
+                    chosen_cost / len(neuron_sequence)
+                    if chosen_cost is not None and len(neuron_sequence) > 0
+                    else torch.tensor(0.0)
+                )
+                for neuron in neuron_sequence:
+                    threshold = getattr(neuron, "activation_threshold", None)
+                    if threshold is None:
+                        continue
+                    grad = getattr(threshold, "grad", None)
+                    if grad is None:
+                        grad = torch.zeros_like(threshold)
+                    latency = getattr(neuron, "lambda_v", torch.tensor(0.0))
+                    stats = {
+                        "gradient": grad,
+                        "latency": latency,
+                        "cost": per_cost,
+                    }
+                    self._routing_adjuster.adjust_gate(neuron, stats)
         if self._reporter is not None:
             self._reporter.report(
                 "entry_id",

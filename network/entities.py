@@ -31,6 +31,8 @@ class Neuron:
         measured_time=None,
         loss_decrease_speed=None,
         prev_cumulative_loss=None,
+        gate=None,
+        activation_threshold=None,
         zero=None,
     ):
         if zero is None:
@@ -51,6 +53,10 @@ class Neuron:
         self.prev_cumulative_loss = (
             zero if prev_cumulative_loss is None else prev_cumulative_loss
         )
+        self.gate = zero if gate is None else gate
+        self.activation_threshold = (
+            zero if activation_threshold is None else activation_threshold
+        )
 
     def reset(self):
         """Reset all dynamic tensors to the configured zero value."""
@@ -68,6 +74,8 @@ class Neuron:
         self.measured_time = zero
         self.loss_decrease_speed = zero
         self.prev_cumulative_loss = zero
+        self.gate = zero
+        self.activation_threshold = zero
 
     def update_reset_state(self, tensor):
         self.reset_state = tensor
@@ -89,6 +97,12 @@ class Neuron:
 
     def update_latency(self, tensor):
         self.lambda_v = tensor
+
+    def update_gate(self, tensor):
+        self.gate = tensor
+
+    def update_activation_threshold(self, tensor):
+        self.activation_threshold = tensor
 
     def update_cumulative_loss(self, loss_tensor, reporter=None):
         """Add ``loss_tensor`` to the neuron's cumulative loss.
@@ -187,6 +201,8 @@ class Neuron:
             "timestamp": self.timestamp,
             "measured_time": self.measured_time,
             "loss_decrease_speed": self.loss_decrease_speed,
+            "gate": self.gate,
+            "activation_threshold": self.activation_threshold,
         }
 
 
