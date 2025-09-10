@@ -25,9 +25,28 @@ class ComplexityCalculator:
         Iterable of sets ``Ω_k`` representing additional attributes.
     reporter : object, optional
         Object providing a ``report`` method for metric recording.
+    neuron_components : sequence, optional
+        For each component, an iterable or integer describing the neurons
+        belonging to that component.  When omitted the global neuron count is
+        used for all components.
+    edge_components : sequence, optional
+        For each component, an iterable or integer describing the edges
+        belonging to that component.  When omitted the global edge count is
+        used for all components.
     """
 
-    def __init__(self, A, B, gamma, lambda_, weights, attribute_sets=None, reporter=None):
+    def __init__(
+        self,
+        A,
+        B,
+        gamma,
+        lambda_,
+        weights,
+        attribute_sets=None,
+        reporter=None,
+        neuron_components=None,
+        edge_components=None,
+    ):
         self._A = A
         self._B = B
         self._gamma = gamma
@@ -35,6 +54,8 @@ class ComplexityCalculator:
         self._weights = weights
         self._attribute_sets = [] if attribute_sets is None else list(attribute_sets)
         self._reporter = reporter
+        self._neuron_components = [] if neuron_components is None else list(neuron_components)
+        self._edge_components = [] if edge_components is None else list(edge_components)
 
     def compute(self, graph_state):
         """Return the global complexity of ``graph_state``.
@@ -59,8 +80,24 @@ class ComplexityCalculator:
         for idx, weight in enumerate(self._weights):
             A_i = self._A[idx]
             B_i = self._B[idx]
-            n_penalty = A_i * (zero_like + num_neurons)
-            e_penalty = B_i * edge_count_t
+            n_count = num_neurons
+            if idx < len(self._neuron_components):
+                comp = self._neuron_components[idx]
+                if hasattr(comp, "__len__"):
+                    n_count = len(comp)
+                else:
+                    n_count = int(comp)
+            e_count = num_edges
+            if idx < len(self._edge_components):
+                comp = self._edge_components[idx]
+                if hasattr(comp, "__len__"):
+                    e_count = len(comp)
+                else:
+                    e_count = int(comp)
+            n_count_t = zero_like + n_count
+            e_count_t = zero_like + e_count
+            n_penalty = A_i * n_count_t
+            e_penalty = B_i * e_count_t
             l1 = weight.abs().sum() if hasattr(weight, "abs") else weight
             if hasattr(weight, "pow"):
                 l2 = weight.pow(2).sum().sqrt()
@@ -73,9 +110,19 @@ class ComplexityCalculator:
             total_l2 = total_l2 + l2
             if self._reporter is not None:
                 self._reporter.report(
+                    f"neuron_count_{idx}",
+                    "Neuron count for component",
+                    n_count_t,
+                )
+                self._reporter.report(
                     f"neuron_penalty_{idx}",
                     "Weighted neuron count for component",
                     n_penalty,
+                )
+                self._reporter.report(
+                    f"edge_count_{idx}",
+                    "Edge count for component",
+                    e_count_t,
                 )
                 self._reporter.report(
                     f"edge_penalty_{idx}",
