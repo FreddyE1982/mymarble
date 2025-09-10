@@ -264,6 +264,16 @@ class PoTED:
             stream_hash = checker.hash_stream(tokens)
             dict_hash = checker.hash_dictionary(self._tokenizer._manager)
             self._integrity_states[stream_hash] = dict_hash
+            if self._dictionary._mode == 'persistent':
+                self._dictionary_snapshots[stream_hash] = (
+                    self._dictionary._rev_dict.copy(),
+                    self._dictionary._next,
+                )
+                self._reporter.report(
+                    'snapshot_count',
+                    'Number of active dictionary snapshots',
+                    len(self._dictionary_snapshots),
+                )
             tensor = self._tensor_builder.to_tensor(tokens)
             total = len(tokens)
             ratio = len(tokens) / len(stream) if stream else 0
