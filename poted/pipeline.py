@@ -35,7 +35,10 @@ class JsonSerializer:
             if "__torch_tensor__" in d:
                 dtype_name = d.get("dtype", "float")
                 dtype = getattr(torch, dtype_name.split(".")[-1])
-                device = torch.device(d.get("device", "cpu"))
+                device_str = d.get("device", "cpu")
+                device = torch.device(device_str)
+                if device.type == "cuda" and not torch.cuda.is_available():
+                    device = torch.device("cpu")
                 requires_grad = d.get("requires_grad", False)
                 return torch.tensor(
                     d["__torch_tensor__"],

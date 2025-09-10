@@ -1,6 +1,7 @@
 import unittest
 import sys
 import pathlib
+import torch
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parent.parent))
 import main
@@ -23,6 +24,20 @@ class TestLossTracker(unittest.TestCase):
         self.assertEqual(reporter.report('loss_updates'), 2)
         print('Stats after updates:', tracker.get_stats(neuron))
         print('Loss updates metric:', reporter.report('loss_updates'))
+
+    def test_loss_tracking_detach(self):
+        reporter = main.Reporter
+        neuron = Neuron()
+        tracker = LossTracker(reporter, zero=torch.tensor(0.0))
+        losses = [
+            torch.tensor(1.0, requires_grad=True),
+            torch.tensor(3.0, requires_grad=True),
+        ]
+        avg = tracker.update_loss(neuron, losses)
+        print('Detached average:', avg)
+        print('Neuron stored loss requires_grad:', neuron.last_local_loss.requires_grad)
+        self.assertFalse(avg.requires_grad)
+        self.assertFalse(neuron.last_local_loss.requires_grad)
 
 
 if __name__ == '__main__':
