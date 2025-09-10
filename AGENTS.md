@@ -1,3 +1,6 @@
+
+YOU MUST NEVER SIMPLIFY OR MAKE LESS EFFICIANT / LESS COMPLEX ANY EXISTING LOGIC OR PARTS OF LOGIC!!
+
 1. use a good programming style:
 1.1 no functions outside classes
 1.2. group classes together into files logically
