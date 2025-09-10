@@ -3,9 +3,9 @@ import sys
 import pathlib
 import torch
 import json
-from poted.pipeline import JsonSerializer
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parent.parent))
+from poted.pipeline import JsonSerializer
 import main
 
 
@@ -121,3 +121,18 @@ class TestMoveTensorFailure(unittest.TestCase):
         print('Device after failed move:', current_device)
         self.assertTrue(balancer.isRegistered(t))
         self.assertEqual(current_device, 'big')
+
+
+class TestAutomaticFallback(unittest.TestCase):
+    def setUp(self):
+        main.Reporter._metrics = {}
+
+    def test_moves_tensor_to_alternate_device_when_preferred_full(self):
+        devices = [main.MemoryDevice('gpu', 50), main.MemoryDevice('cpu', 100)]
+        balancer = main.TensorLoadBalancer(devices)
+        t = DummyTensor(60, 'gpu')
+        balancer.register(t)
+        registered_device = balancer._registry[id(t)]['device'].name
+        print('Fallback registered device:', registered_device)
+        self.assertEqual(registered_device, 'cpu')
+        self.assertEqual(main.Reporter.report('device_fallbacks'), 1)
