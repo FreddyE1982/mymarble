@@ -162,16 +162,24 @@ class Backpropagator:
             lam = getattr(neuron, "lambda_v", zero)
 
             dC_dy = torch.autograd.grad(
-                loss, l_v, retain_graph=True, allow_unused=True
-            )[0]
-            dY_dw = torch.autograd.grad(
-                l_v, w_v, retain_graph=True, allow_unused=True
+                loss,
+                l_v,
+                grad_outputs=torch.ones_like(loss),
+                retain_graph=True,
+                allow_unused=True,
             )[0]
             if dC_dy is None:
-                dC_dy = torch.zeros_like(w_v)
-            if dY_dw is None:
-                dY_dw = torch.zeros_like(w_v)
-            first_term = dC_dy * dY_dw
+                dC_dy = torch.zeros_like(l_v)
+            dC_dw = torch.autograd.grad(
+                l_v,
+                w_v,
+                grad_outputs=dC_dy,
+                retain_graph=True,
+                allow_unused=True,
+            )[0]
+            if dC_dw is None:
+                dC_dw = torch.zeros_like(w_v)
+            first_term = dC_dw
 
             norm1 = w_v.abs().sum()
             grad_norm1 = torch.autograd.grad(
@@ -215,16 +223,24 @@ class Backpropagator:
             lam = getattr(synapse, "lambda_e", zero)
 
             dC_dy = torch.autograd.grad(
-                loss, c_e, retain_graph=True, allow_unused=True
-            )[0]
-            dY_dw = torch.autograd.grad(
-                c_e, w_e, retain_graph=True, allow_unused=True
+                loss,
+                c_e,
+                grad_outputs=torch.ones_like(loss),
+                retain_graph=True,
+                allow_unused=True,
             )[0]
             if dC_dy is None:
-                dC_dy = torch.zeros_like(w_e)
-            if dY_dw is None:
-                dY_dw = torch.zeros_like(w_e)
-            first_term = dC_dy * dY_dw
+                dC_dy = torch.zeros_like(c_e)
+            dC_dw = torch.autograd.grad(
+                c_e,
+                w_e,
+                grad_outputs=dC_dy,
+                retain_graph=True,
+                allow_unused=True,
+            )[0]
+            if dC_dw is None:
+                dC_dw = torch.zeros_like(w_e)
+            first_term = dC_dw
 
             norm2 = 0.5 * w_e.pow(2).sum()
             grad_norm2 = torch.autograd.grad(
