@@ -17,6 +17,7 @@ class Graph:
         entry_sampler=None,
         path_cost=None,
         path_selector=None,
+        path_forwarder=None,
         latency_estimator=None,
         reporter=None,
     ):
@@ -43,6 +44,10 @@ class Graph:
             from .path_selector import PathSelector  # local import
             path_selector = PathSelector(reporter=reporter)
         self._path_selector = path_selector
+        if path_forwarder is None:
+            from .path_forwarder import PathForwarder  # local import
+            path_forwarder = PathForwarder(reporter=reporter)
+        self._path_forwarder = path_forwarder
         if latency_estimator is None:
             from .latency import LatencyEstimator  # local import
             latency_estimator = LatencyEstimator(reporter=reporter)
@@ -225,6 +230,7 @@ class Graph:
                 chosen_cost = c
                 chosen_latency = l
                 break
+        telemetry = {}
         if sampled and self._latency_estimator is not None:
             for i in range(0, len(sampled), 2):
                 neuron = sampled[i]
@@ -241,6 +247,10 @@ class Graph:
                         )
                     syn_map[sid] = synapse
                 self._latency_estimator.update(nid, neuron, syn_map)
+        if sampled and self._path_forwarder is not None:
+            neuron_sequence = [sampled[i] for i in range(0, len(sampled), 2)]
+            step_losses = [getattr(n, "last_local_loss", 0) for n in neuron_sequence]
+            telemetry = self._path_forwarder.run(neuron_sequence, step_losses)
         if self._reporter is not None:
             self._reporter.report(
                 "entry_id",
@@ -261,10 +271,25 @@ class Graph:
                     "Cost of chosen path from entry neuron",
                     cost_detached,
                 )
+            if telemetry:
+                self._reporter.report(
+                    "path_time",
+                    "Total traversal time for chosen path",
+                    telemetry.get("path_time", 0),
+                )
+                self._reporter.report(
+                    "final_cumulative_loss",
+                    "Final cumulative loss after forwarding along path",
+                    telemetry.get("final_loss", 0),
+                )
         if sampled:
             for element in sampled:
                 if hasattr(element, "update_cost"):
                     element.update_cost(chosen_cost)
                 if hasattr(element, "update_next_min_loss"):
                     element.update_next_min_loss(chosen_cost)
-        return sampled
+        result = {"path": sampled}
+        if telemetry:
+            result["path_time"] = telemetry.get("path_time", 0)
+            result["final_cumulative_loss"] = telemetry.get("final_loss", 0)
+        return result
