@@ -12,19 +12,31 @@ graph.
 class Graph:
     """A directed multigraph of neurons and synapses."""
 
-    def __init__(self, path_selector=None, latency_estimator=None, reporter=None):
+    def __init__(
+        self,
+        entry_sampler=None,
+        path_cost=None,
+        path_selector=None,
+        reporter=None,
+    ):
         self.neurons = {}
         self.synapses = {}
         self._outgoing = {}
         self._incoming = {}
+        self._reporter = reporter
+        if entry_sampler is None:
+            from .entry_sampler import EntrySampler  # local import to avoid module level dependency
+            import torch  # local import
+            entry_sampler = EntrySampler(temperature=1.0, torch=torch, reporter=reporter)
+        self._entry_sampler = entry_sampler
+        if path_cost is None:
+            from .path_cost import PathCostCalculator  # local import
+            path_cost = PathCostCalculator(reporter=reporter)
+        self._path_cost = path_cost
         if path_selector is None:
-            from .path_selector import PathSelector  # local import to avoid module level dependency
+            from .path_selector import PathSelector  # local import
             path_selector = PathSelector(reporter=reporter)
         self._path_selector = path_selector
-        if latency_estimator is None:
-            from .latency import LatencyEstimator  # local import to avoid module level dependency
-            latency_estimator = LatencyEstimator(reporter=reporter)
-        self._latency_estimator = latency_estimator
 
     def add_neuron(self, neuron_id, neuron):
         """Add a neuron to the graph."""
@@ -99,37 +111,113 @@ class Graph:
             for sid in sids:
                 yield sid
 
-    def forward(self, global_loss_target, activations=None):
-        """Select paths for all neurons using the configured PathSelector.
+    def _enumerate_paths(self, start_id, visited=None):
+        """Return all simple paths starting at ``start_id``.
 
-        Parameters
-        ----------
-        global_loss_target : object
-            Target loss used by the scoring function.
-        activations : dict, optional
-            Optional mapping ``{neuron_id: activation_state}`` supplying
-            additional per-neuron activation tensors.
-
-        Returns
-        -------
-        dict
-            Mapping of neuron identifiers to the selected outgoing synapse or
-            ``None`` if a neuron has no outgoing synapses.
+        Paths are represented as lists alternating between neurons and
+        synapses.  Enumeration stops once a terminal neuron (no outgoing
+        synapses) is reached or when a cycle would be formed.
         """
-        selections = {}
-        if activations is None:
-            activations = {}
-        for nid, neuron in self.neurons.items():
-            outgoing_ids = []
-            for sids in self._outgoing.get(nid, {}).values():
-                outgoing_ids.extend(sids)
-            synapse_map = {sid: self.synapses[sid][2] for sid in outgoing_ids}
-            self._latency_estimator.update(nid, neuron, synapse_map)
-            synapses = list(synapse_map.values())
-            state = {
-                "outgoing_synapses": synapses,
-                "activation_tensors": activations.get(nid, {}),
-                "global_loss_target": global_loss_target,
-            }
-            selections[nid] = self._path_selector.select_path(neuron, state)
-        return selections
+        if visited is None:
+            visited = set()
+        visited.add(start_id)
+        neuron = self.neurons[start_id]
+        outgoing = self._outgoing.get(start_id, {})
+        if not outgoing:
+            return [[neuron]]
+        paths = []
+        for tgt_id, syn_ids in outgoing.items():
+            if tgt_id in visited:
+                continue
+            for sid in syn_ids:
+                synapse = self.synapses[sid][2]
+                for sub in self._enumerate_paths(tgt_id, visited.copy()):
+                    paths.append([neuron, synapse] + sub)
+        return paths
+
+    def _aggregate_latency(self, sequence):
+        total = 0
+        for element in sequence:
+            if hasattr(element, "lambda_v"):
+                total = total + getattr(element, "lambda_v")
+            elif hasattr(element, "lambda_e"):
+                total = total + getattr(element, "lambda_e")
+        return total
+
+    def forward(self, method="exact", cost_params=None, sample_params=None):
+        """Execute one forward selection step through the graph."""
+        cost_defaults = {
+            "lambda_0": 0,
+            "lambda_max": 0,
+            "alpha": 1,
+            "beta": 1,
+            "T_heat": 1,
+        }
+        if cost_params:
+            cost_defaults.update(cost_params)
+        sample_defaults = {"R_v_star": 0, "T_sample": 1}
+        if sample_params:
+            sample_defaults.update(sample_params)
+        self._entry_sampler.compute_probabilities(self)
+        entry_neuron = self._entry_sampler.sample_entry()
+        paths = self._enumerate_paths(entry_neuron.id)
+        evaluated = []
+        for p in paths:
+            cost = self._path_cost.compute_cost(
+                p,
+                cost_defaults["lambda_0"],
+                cost_defaults["lambda_max"],
+                cost_defaults["alpha"],
+                cost_defaults["beta"],
+                cost_defaults["T_heat"],
+            )
+            latency = self._aggregate_latency(p)
+            evaluated.append((p, cost, latency))
+        sequences = [(p, c) for p, c, _ in evaluated]
+        if method == "soft":
+            best, sampled = self._path_selector.select_soft(
+                entry_neuron,
+                sequences,
+                sample_defaults["R_v_star"],
+                sample_defaults["T_sample"],
+            )
+        else:
+            best, sampled = self._path_selector.select_exact(entry_neuron, sequences)
+        idx = None
+        chosen_cost = None
+        chosen_latency = None
+        for i, (p, c, l) in enumerate(evaluated):
+            if p is sampled:
+                idx = i
+                chosen_cost = c
+                chosen_latency = l
+                break
+        if self._reporter is not None:
+            self._reporter.report(
+                "entry_id",
+                "Identifier of sampled entry neuron",
+                entry_neuron.id,
+            )
+            if idx is not None:
+                self._reporter.report(
+                    "path_id",
+                    "Index of chosen path from entry neuron",
+                    idx,
+                )
+                cost_detached = (
+                    chosen_cost.detach() if hasattr(chosen_cost, "detach") else chosen_cost
+                )
+                self._reporter.report(
+                    "path_cost",
+                    "Cost of chosen path from entry neuron",
+                    cost_detached,
+                )
+        if sampled:
+            for element in sampled:
+                if hasattr(element, "update_latency"):
+                    element.update_latency(chosen_latency)
+                if hasattr(element, "update_cost"):
+                    element.update_cost(chosen_cost)
+                if hasattr(element, "update_next_min_loss"):
+                    element.update_next_min_loss(chosen_cost)
+        return sampled
