@@ -1,5 +1,10 @@
 import torch
 import types
+from network.entities import Neuron, Synapse
+from network.graph import Graph
+from network.path_selector import PathSelector
+from network.learning import LossTracker
+from network.latency import LatencyEstimator
 
 
 class Reporter:
@@ -422,8 +427,53 @@ class Application:
             Operation('op2', 256, 3, 'CPU'),
         ]
         scheduler = Scheduler([gpu, cpu])
-        scheduler.run_parallel(ops)
+        scheduler.run(ops)
         print('Metrics:', Reporter.report(['GPU_used', 'CPU_used', 'makespan']))
+
+        path_selector = PathSelector(reporter=Reporter)
+        latency_estimator = LatencyEstimator(reporter=Reporter)
+        loss_tracker = LossTracker(reporter=Reporter)
+        graph = Graph(
+            path_selector=path_selector,
+            latency_estimator=latency_estimator,
+            reporter=Reporter,
+        )
+
+        n1 = Neuron()
+        n2 = Neuron()
+        graph.add_neuron('n1', n1)
+        graph.add_neuron('n2', n2)
+        s1 = Synapse()
+        s2 = Synapse()
+        graph.add_synapse('s1', 'n1', 'n2', s1)
+        graph.add_synapse('s2', 'n2', 'n1', s2)
+
+        loss_tracker.update_loss(n1, [torch.tensor(0.1)])
+        loss_tracker.update_loss(n2, [torch.tensor(0.2)])
+
+        selections = graph.forward(global_loss_target=0.0)
+        selected_ids = {}
+        for nid, syn in selections.items():
+            sid = None
+            if syn is not None:
+                for syn_id, meta in graph.synapses.items():
+                    if meta[2] is syn:
+                        sid = syn_id
+                        break
+            selected_ids[nid] = sid
+        print('Selected paths:', selected_ids)
+
+        metrics = {
+            'n1_loss': Reporter.report(f'neuron_{id(n1)}_rolling_loss'),
+            'n2_loss': Reporter.report(f'neuron_{id(n2)}_rolling_loss'),
+            'path_calls': Reporter.report('path_selector_calls'),
+            'last_path_score': Reporter.report('path_selector_last_score'),
+            'latency_n1': Reporter.report('latency_neuron_n1'),
+            'latency_n2': Reporter.report('latency_neuron_n2'),
+            'latency_s1': Reporter.report('latency_synapse_s1'),
+            'latency_s2': Reporter.report('latency_synapse_s2'),
+        }
+        print('Graph metrics:', metrics)
 
 
 if __name__ == '__main__':
