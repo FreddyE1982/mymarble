@@ -55,9 +55,11 @@ class LossTracker:
         stats["t"] += 1
         stats["m"] += path_count
         t = stats["t"]
-        stats["avg"] = ((stats["avg"] * (t - 1)) + mean_loss) / t
+        avg = ((stats["avg"] * (t - 1)) + mean_loss) / t
+        avg_detached = avg.detach() if hasattr(avg, "detach") else avg
+        stats["avg"] = avg_detached
         self._stats[neuron] = stats
-        neuron.record_local_loss(stats["avg"])
+        neuron.record_local_loss(avg_detached)
         count = self._reporter.report("loss_updates") or 0
         self._reporter.report(
             "loss_updates",
@@ -72,9 +74,9 @@ class LossTracker:
         self._reporter.report(
             f"neuron_{id(neuron)}_rolling_loss",
             "Rolling average of path losses for neuron",
-            stats["avg"],
+            avg_detached,
         )
-        return stats["avg"]
+        return avg_detached
 
     def get_stats(self, neuron):
         """Return a dictionary snapshot of statistics for ``neuron``."""
