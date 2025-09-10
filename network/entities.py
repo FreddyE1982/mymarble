@@ -29,6 +29,7 @@ class Neuron:
         step_loss=None,
         timestamp=None,
         measured_time=None,
+        step_time=None,
         loss_decrease_speed=None,
         prev_cumulative_loss=None,
         gate=None,
@@ -52,6 +53,7 @@ class Neuron:
         self.step_loss = zero if step_loss is None else step_loss
         self.timestamp = zero if timestamp is None else timestamp
         self.measured_time = zero if measured_time is None else measured_time
+        self.step_time = zero if step_time is None else step_time
         self.loss_decrease_speed = zero if loss_decrease_speed is None else loss_decrease_speed
         self.prev_cumulative_loss = (
             zero if prev_cumulative_loss is None else prev_cumulative_loss
@@ -77,6 +79,7 @@ class Neuron:
         self.step_loss = zero
         self.timestamp = zero
         self.measured_time = zero
+        self.step_time = zero
         self.loss_decrease_speed = zero
         self.prev_cumulative_loss = zero
         self.gate = zero
@@ -104,6 +107,29 @@ class Neuron:
 
     def update_latency(self, tensor):
         self.lambda_v = tensor
+
+    def update_step_time(self, measured_latency, alpha, reporter=None):
+        """Update the exponential moving average of the step time.
+
+        Parameters
+        ----------
+        measured_latency : object
+            Most recent forward latency :math:`\lambda_v` to incorporate.
+        alpha : float
+            Smoothing factor for the EMA.
+        reporter : object, optional
+            Reporter instance used for metric emission.
+        """
+        prev = self.step_time
+        ema = (measured_latency * alpha) + (prev * (1 - alpha))
+        self.step_time = ema
+        reporter = reporter or self._reporter
+        if reporter is not None:
+            reporter.report(
+                f"neuron_{id(self)}_step_time",
+                "EMA of forward step time for neuron",
+                ema,
+            )
 
     def update_gate(self, tensor):
         self.gate = tensor
@@ -225,6 +251,7 @@ class Neuron:
             "step_loss": self.step_loss,
             "timestamp": self.timestamp,
             "measured_time": self.measured_time,
+            "step_time": self.step_time,
             "loss_decrease_speed": self.loss_decrease_speed,
             "prev_cumulative_loss": self.prev_cumulative_loss,
             "gate": self.gate,
