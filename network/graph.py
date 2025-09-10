@@ -21,6 +21,9 @@ class Graph:
         latency_estimator=None,
         reporter=None,
         routing_adjuster=None,
+        complexity_calculator=None,
+        topology_fitness=None,
+        evolution_operator=None,
     ):
         self.neurons = {}
         self.synapses = {}
@@ -57,6 +60,37 @@ class Graph:
             from routing.improvements import GateAdjuster  # local import
             routing_adjuster = GateAdjuster(reporter=reporter)
         self._routing_adjuster = routing_adjuster
+        if complexity_calculator is None:
+            from .complexity import ComplexityCalculator  # local import
+            import torch  # local import
+            complexity_calculator = ComplexityCalculator(
+                [],
+                [],
+                torch.tensor(0.0),
+                torch.tensor(0.0),
+                [],
+                reporter=reporter,
+            )
+        self._complexity_calculator = complexity_calculator
+        if topology_fitness is None:
+            from .topology_fitness import TopologyFitness  # local import
+            topology_fitness = TopologyFitness(reporter=reporter)
+        self._topology_fitness = topology_fitness
+        if evolution_operator is None:
+            from .evolution import EvolutionOperator  # local import
+            import torch  # local import
+            evolution_operator = EvolutionOperator(
+                self,
+                self._complexity_calculator,
+                self._topology_fitness,
+                torch.tensor(float("inf")),
+                torch.tensor(float("inf")),
+                torch.tensor(float("inf")),
+                torch.tensor(float("inf")),
+                torch.tensor(float("inf")),
+                reporter=reporter,
+            )
+        self._evolution_operator = evolution_operator
 
     def add_neuron(self, neuron_id, neuron):
         """Add a neuron to the graph."""
@@ -171,6 +205,7 @@ class Graph:
         sample_params=None,
         global_loss_target=None,
         activations=None,
+        evolution_instructions=None,
     ):
         """Execute one forward selection step through the graph.
 
@@ -236,6 +271,7 @@ class Graph:
                 chosen_latency = l
                 break
         telemetry = {}
+        neuron_sequence = []
         if sampled and self._latency_estimator is not None:
             for i in range(0, len(sampled), 2):
                 neuron = sampled[i]
@@ -256,27 +292,6 @@ class Graph:
             neuron_sequence = [sampled[i] for i in range(0, len(sampled), 2)]
             step_losses = [getattr(n, "last_local_loss", 0) for n in neuron_sequence]
             telemetry = self._path_forwarder.run(neuron_sequence, step_losses)
-            if self._routing_adjuster is not None and neuron_sequence:
-                import torch  # local import
-                per_cost = (
-                    chosen_cost / len(neuron_sequence)
-                    if chosen_cost is not None and len(neuron_sequence) > 0
-                    else torch.tensor(0.0)
-                )
-                for neuron in neuron_sequence:
-                    threshold = getattr(neuron, "activation_threshold", None)
-                    if threshold is None:
-                        continue
-                    grad = getattr(threshold, "grad", None)
-                    if grad is None:
-                        grad = torch.zeros_like(threshold)
-                    latency = getattr(neuron, "lambda_v", torch.tensor(0.0))
-                    stats = {
-                        "gradient": grad,
-                        "latency": latency,
-                        "cost": per_cost,
-                    }
-                    self._routing_adjuster.adjust_gate(neuron, stats)
         if self._reporter is not None:
             self._reporter.report(
                 "entry_id",
@@ -314,8 +329,85 @@ class Graph:
                     element.update_cost(chosen_cost)
                 if hasattr(element, "update_next_min_loss"):
                     element.update_next_min_loss(chosen_cost)
-        result = {"path": sampled}
+        import torch  # local import
+        paths_stats = {}
+        if evaluated:
+            zero = chosen_cost * 0 if chosen_cost is not None else torch.tensor(0.0)
+            stats_list = []
+            for p, c, l in evaluated:
+                loss = zero
+                for n in p[::2]:
+                    val = getattr(n, "last_local_loss", zero)
+                    if not hasattr(val, "shape"):
+                        val = torch.tensor(val)
+                    loss = loss + val
+                stats_list.append({"loss": loss, "latency": l, "cost": c})
+            if idx is not None and telemetry.get("final_loss") is not None:
+                stats_list[idx]["loss"] = telemetry["final_loss"]
+            paths_stats[entry_neuron.id] = stats_list
+        complexity = self._complexity_calculator.compute(self)
+        topology_fitness = self._topology_fitness.evaluate(paths_stats, complexity)
+        if self._reporter is not None:
+            self._reporter.report(
+                "complexity",
+                "Global complexity of graph",
+                complexity,
+            )
+            self._reporter.report(
+                "topology_fitness",
+                "Topology fitness of graph",
+                topology_fitness,
+            )
+        mutation_results = {}
+        if evolution_instructions:
+            if "add_neuron" in evolution_instructions:
+                applied = self._evolution_operator.add_neuron(
+                    evolution_instructions["add_neuron"], paths_stats
+                )
+                mutation_results["add_neuron"] = applied
+            if "remove_neuron" in evolution_instructions:
+                neuron_id, metrics = evolution_instructions["remove_neuron"]
+                applied = self._evolution_operator.remove_neuron(
+                    neuron_id, metrics, paths_stats
+                )
+                mutation_results["remove_neuron"] = applied
+            if "add_synapse" in evolution_instructions:
+                applied = self._evolution_operator.add_synapse(
+                    evolution_instructions["add_synapse"], paths_stats
+                )
+                mutation_results["add_synapse"] = applied
+            if "remove_synapse" in evolution_instructions:
+                syn_id, metrics = evolution_instructions["remove_synapse"]
+                applied = self._evolution_operator.remove_synapse(
+                    syn_id, metrics, paths_stats
+                )
+                mutation_results["remove_synapse"] = applied
+            if "move_synapse" in evolution_instructions:
+                syn_id, new_src, new_tgt, metrics = evolution_instructions["move_synapse"]
+                applied = self._evolution_operator.move_synapse(
+                    syn_id, new_src, new_tgt, metrics, paths_stats
+                )
+                mutation_results["move_synapse"] = applied
+        if self._routing_adjuster is not None and neuron_sequence:
+            per_cost = (
+                chosen_cost / len(neuron_sequence)
+                if chosen_cost is not None and len(neuron_sequence) > 0
+                else torch.tensor(0.0)
+            )
+            for neuron in neuron_sequence:
+                threshold = getattr(neuron, "activation_threshold", None)
+                if threshold is None:
+                    continue
+                grad = getattr(threshold, "grad", None)
+                if grad is None:
+                    grad = torch.zeros_like(threshold)
+                latency = getattr(neuron, "lambda_v", torch.tensor(0.0))
+                stats = {"gradient": grad, "latency": latency, "cost": per_cost}
+                self._routing_adjuster.adjust_gate(neuron, stats)
+        result = {"path": sampled, "complexity": complexity, "topology_fitness": topology_fitness}
         if telemetry:
             result["path_time"] = telemetry.get("path_time", 0)
             result["final_cumulative_loss"] = telemetry.get("final_loss", 0)
+        if mutation_results:
+            result["mutations"] = mutation_results
         return result
