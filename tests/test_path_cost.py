@@ -11,10 +11,19 @@ from network.path_cost import PathCostCalculator
 
 class TestPathCost(unittest.TestCase):
     def setUp(self):
+        torch.manual_seed(0)
         main.Reporter._metrics = {}
         self.zero = torch.tensor(0.0)
-        self.neuron = Neuron(last_local_loss=torch.tensor(2.0), lambda_v=torch.tensor(3.0), zero=self.zero)
-        self.synapse = Synapse(c_e=torch.tensor(5.0), lambda_e=torch.tensor(7.0), zero=self.zero)
+        self.neuron = Neuron(
+            last_local_loss=torch.tensor(2.0),
+            lambda_v=torch.tensor(3.0),
+            zero=self.zero,
+        )
+        self.synapse = Synapse(
+            c_e=torch.tensor(5.0),
+            lambda_e=torch.tensor(7.0),
+            zero=self.zero,
+        )
         self.calc = PathCostCalculator(reporter=main.Reporter, zero=self.zero)
 
     def test_compute_cost(self):
