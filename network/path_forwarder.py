@@ -64,8 +64,8 @@ class PathForwarder:
         last_neuron = None
         for neuron, loss in zip(path, losses):
             t_curr = self._time_source()
-            neuron.update_cumulative_loss(loss)
-            neuron.record_activation(t_curr, t_curr)
+            neuron.update_cumulative_loss(loss, self._reporter)
+            neuron.record_activation(t_curr, t_curr, self._reporter)
             hop_duration = t_curr - prev_time
             total_time += hop_duration
             prev_time = t_curr
