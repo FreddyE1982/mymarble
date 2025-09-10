@@ -84,3 +84,40 @@ class TestTensorDeviceSync(unittest.TestCase):
         print('After move:', after_a, after_b)
         self.assertEqual(after_a, 'gpu')
         self.assertEqual(after_b, 'gpu')
+
+
+class TestAutogradTensors(unittest.TestCase):
+    def setUp(self):
+        main.Reporter._metrics = {}
+
+    def test_registers_real_autograd_tensors(self):
+        devices = [main.MemoryDevice('cpu', 100)]
+        balancer = main.TensorLoadBalancer(devices)
+        a = torch.tensor([1.0], requires_grad=True)
+        b = torch.tensor([2.0], requires_grad=True)
+        c = (a + b) * 2
+        balancer.register(a)
+        balancer.register(b)
+        balancer.register(c)
+        related = list(balancer._collect_related_tensors(c))
+        print('Related tensors collected:', len(related))
+        self.assertIn(a, related)
+        self.assertIn(b, related)
+
+
+class TestMoveTensorFailure(unittest.TestCase):
+    def setUp(self):
+        main.Reporter._metrics = {}
+
+    def test_preserves_allocation_on_failed_move(self):
+        devices = [main.MemoryDevice('big', 100), main.MemoryDevice('small', 10)]
+        balancer = main.TensorLoadBalancer(devices)
+        t = DummyTensor(50, 'big')
+        balancer.register(t)
+        t.device = 'small'
+        with self.assertRaises(main.DeviceCapacityExceeded):
+            balancer.register(t)
+        current_device = balancer._registry[id(t)]['device'].name
+        print('Device after failed move:', current_device)
+        self.assertTrue(balancer.isRegistered(t))
+        self.assertEqual(current_device, 'big')
