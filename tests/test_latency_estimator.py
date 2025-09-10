@@ -64,6 +64,25 @@ class TestLatencyEstimator(unittest.TestCase):
         print('Reported inactive neuron latency:', metric)
         self.assertIsNone(metric)
 
+    def test_path_cost_uses_current_latency(self):
+        graph = Graph(reporter=main.Reporter)
+        n1 = Neuron(zero=self.zero)
+        n2 = Neuron(zero=self.zero)
+        graph.add_neuron('n1', n1)
+        graph.add_neuron('n2', n2)
+        s1 = Synapse(zero=self.zero)
+        graph.add_synapse('s1', 'n1', 'n2', s1)
+        n1.phi_v = self.zero
+        n2.phi_v = torch.full_like(self.zero, float('-inf'))
+        graph.forward(global_loss_target=self.zero)
+        lat1 = main.Reporter.report('path_latency')
+        print('Initial path latency:', lat1)
+        time.sleep(0.05)
+        graph.forward(global_loss_target=self.zero)
+        lat2 = main.Reporter.report('path_latency')
+        print('Path latency after wait:', lat2)
+        self.assertGreater(lat2, lat1)
+
 
 if __name__ == '__main__':
     unittest.main()
