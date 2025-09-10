@@ -17,6 +17,7 @@ class Graph:
         entry_sampler=None,
         path_cost=None,
         path_selector=None,
+        latency_estimator=None,
         reporter=None,
     ):
         self.neurons = {}
@@ -27,7 +28,12 @@ class Graph:
         if entry_sampler is None:
             from .entry_sampler import EntrySampler  # local import to avoid module level dependency
             import torch  # local import
-            entry_sampler = EntrySampler(temperature=1.0, torch=torch, reporter=reporter)
+            entry_sampler = EntrySampler(
+                temperature=1.0,
+                torch=torch,
+                reporter=reporter,
+                zero=torch.tensor(0.0),
+            )
         self._entry_sampler = entry_sampler
         if path_cost is None:
             from .path_cost import PathCostCalculator  # local import
@@ -37,6 +43,10 @@ class Graph:
             from .path_selector import PathSelector  # local import
             path_selector = PathSelector(reporter=reporter)
         self._path_selector = path_selector
+        if latency_estimator is None:
+            from .latency import LatencyEstimator  # local import
+            latency_estimator = LatencyEstimator(reporter=reporter)
+        self._latency_estimator = latency_estimator
 
     def add_neuron(self, neuron_id, neuron):
         """Add a neuron to the graph."""
@@ -144,8 +154,40 @@ class Graph:
                 total = total + getattr(element, "lambda_e")
         return total
 
-    def forward(self, method="exact", cost_params=None, sample_params=None):
-        """Execute one forward selection step through the graph."""
+    def forward(
+        self,
+        method="exact",
+        cost_params=None,
+        sample_params=None,
+        global_loss_target=None,
+        activations=None,
+    ):
+        """Execute one forward selection step through the graph.
+
+        Parameters
+        ----------
+        method : str, optional
+            Path selection strategy. Defaults to "exact".
+        cost_params : dict, optional
+            Overrides for cost calculation parameters.
+        sample_params : dict, optional
+            Overrides for sampling parameters when ``method="soft"``.
+        global_loss_target : object, optional
+            Accepted for backward compatibility. Currently unused.
+        activations : dict, optional
+            Accepted for backward compatibility. Currently unused.
+        """
+        if activations is None:
+            activations = {}
+        for nid, neuron in self.neurons.items():
+            outgoing = self._outgoing.get(nid, {})
+            syn_map = {
+                sid: self.synapses[sid][2]
+                for sids in outgoing.values()
+                for sid in sids
+            }
+            if self._latency_estimator is not None:
+                self._latency_estimator.update(nid, neuron, syn_map)
         cost_defaults = {
             "lambda_0": 0,
             "lambda_max": 0,
@@ -214,8 +256,6 @@ class Graph:
                 )
         if sampled:
             for element in sampled:
-                if hasattr(element, "update_latency"):
-                    element.update_latency(chosen_latency)
                 if hasattr(element, "update_cost"):
                     element.update_cost(chosen_cost)
                 if hasattr(element, "update_next_min_loss"):
