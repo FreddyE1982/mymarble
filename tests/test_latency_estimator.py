@@ -23,6 +23,8 @@ class TestLatencyEstimator(unittest.TestCase):
         graph.add_neuron('n2', n2)
         s1 = Synapse(zero=self.zero)
         graph.add_synapse('s1', 'n1', 'n2', s1)
+        n1.phi_v = self.zero
+        n2.phi_v = torch.full_like(self.zero, float('-inf'))
         graph.forward(global_loss_target=self.zero)
         time.sleep(0.01)
         graph.forward(global_loss_target=self.zero)
@@ -38,6 +40,29 @@ class TestLatencyEstimator(unittest.TestCase):
         print('Reported synapse latency:', metric_e)
         self.assertEqual(lv, metric_v)
         self.assertEqual(le, metric_e)
+
+    def test_inactive_neuron_no_latency_update(self):
+        graph = Graph(reporter=main.Reporter)
+        n1 = Neuron(zero=self.zero)
+        n2 = Neuron(zero=self.zero)
+        n3 = Neuron(zero=self.zero)
+        graph.add_neuron('n1', n1)
+        graph.add_neuron('n2', n2)
+        graph.add_neuron('n3', n3)
+        s1 = Synapse(zero=self.zero)
+        graph.add_synapse('s1', 'n1', 'n2', s1)
+        n1.phi_v = self.zero
+        neg_inf = torch.full_like(self.zero, float('-inf'))
+        n2.phi_v = neg_inf
+        n3.phi_v = neg_inf
+        graph.forward(global_loss_target=self.zero)
+        time.sleep(0.01)
+        graph.forward(global_loss_target=self.zero)
+        print('Inactive neuron latency:', n3.lambda_v)
+        self.assertEqual(n3.lambda_v, self.zero)
+        metric = main.Reporter.report('latency_neuron_n3')
+        print('Reported inactive neuron latency:', metric)
+        self.assertIsNone(metric)
 
 
 if __name__ == '__main__':
