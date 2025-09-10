@@ -15,6 +15,18 @@ class DummyTensor:
         self.device = device
 
 
+class DummyGradFn:
+    def __init__(self, variable, parents=None):
+        self.variable = variable
+        self.next_functions = [(p.grad_fn, 0) for p in (parents or [])]
+
+
+class GraphTensor(DummyTensor):
+    def __init__(self, size, device, parents=None):
+        super().__init__(size, device)
+        self.grad_fn = DummyGradFn(self, parents)
+
+
 class TestTensorLoadBalancerDevice(unittest.TestCase):
     def setUp(self):
         main.Reporter._metrics = {}
@@ -49,3 +61,26 @@ class TestJsonSerializerDeviceFallback(unittest.TestCase):
         tensor = serializer.deserialize(stream)
         print('Deserialized tensor device:', tensor.device)
         self.assertEqual(tensor.device.type, 'cpu')
+
+
+class TestTensorDeviceSync(unittest.TestCase):
+    def setUp(self):
+        main.Reporter._metrics = {}
+
+    def test_moves_related_tensors_to_same_device(self):
+        devices = [main.MemoryDevice('cpu', 100), main.MemoryDevice('gpu', 100)]
+        balancer = main.TensorLoadBalancer(devices)
+        a = GraphTensor(10, 'cpu')
+        b = GraphTensor(10, 'gpu')
+        c = GraphTensor(20, 'gpu', parents=[a, b])
+        balancer.register(a)
+        balancer.register(b)
+        before_a = balancer._registry[id(a)]['device'].name
+        before_b = balancer._registry[id(b)]['device'].name
+        print('Before move:', before_a, before_b)
+        balancer.register(c)
+        after_a = balancer._registry[id(a)]['device'].name
+        after_b = balancer._registry[id(b)]['device'].name
+        print('After move:', after_a, after_b)
+        self.assertEqual(after_a, 'gpu')
+        self.assertEqual(after_b, 'gpu')

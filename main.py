@@ -318,8 +318,6 @@ class TensorLoadBalancer(Scheduler):
 
     def register(self, tensor):
         tid = id(tensor)
-        if tid in self._registry:
-            raise ValueError('Tensor already registered')
         size = getattr(tensor, 'nbytes', None)
         if size is None:
             size = getattr(tensor, 'size', None)
@@ -335,10 +333,58 @@ class TensorLoadBalancer(Scheduler):
         elif not isinstance(dev_key, str):
             dev_key = getattr(dev_key, 'type', dev_key)
         device = self.devices[dev_key] if isinstance(dev_key, str) else dev_key
+        if tid in self._registry:
+            current = self._registry[tid]['device']
+            if current != device:
+                self._move_tensor(tensor, device)
+                self._ensure_group_device(tensor, device)
+            return self._registry[tid]['block']
         block = device.allocate(size)
         self._registry[tid] = {'device': device, 'block': block, 'size': size}
         Reporter.report('registered_tensors', 'Number of tensors currently registered', len(self._registry))
+        self._ensure_group_device(tensor, device)
         return block
+
+    def _collect_related_tensors(self, tensor):
+        related = set()
+        seen = set()
+        stack = [getattr(tensor, 'grad_fn', None)]
+        while stack:
+            fn = stack.pop()
+            if fn is None or fn in seen:
+                continue
+            seen.add(fn)
+            var = getattr(fn, 'variable', None)
+            if var is not None and var is not tensor:
+                related.add(var)
+            for nxt, _ in getattr(fn, 'next_functions', []):
+                stack.append(nxt)
+        return related
+
+    def _move_tensor(self, tensor, device):
+        tid = id(tensor)
+        meta = self._registry[tid]
+        if meta['device'] == device:
+            return
+        meta['device'].free(meta['block'])
+        new_block = device.allocate(meta['size'])
+        meta['device'] = device
+        meta['block'] = new_block
+        count = Reporter.report('tensor_device_moves') or 0
+        Reporter.report('tensor_device_moves', 'Number of tensor device migrations', count + 1)
+        if hasattr(tensor, 'to') and hasattr(tensor, 'data'):
+            try:
+                tensor.data = tensor.data.to(device.name if isinstance(device, MemoryDevice) else device)
+            except Exception:
+                tensor.device = device.name if isinstance(device, MemoryDevice) else device
+        else:
+            tensor.device = device.name if isinstance(device, MemoryDevice) else device
+
+    def _ensure_group_device(self, tensor, device):
+        for related in self._collect_related_tensors(tensor):
+            tid = id(related)
+            if tid in self._registry and self._registry[tid]['device'] != device:
+                self._move_tensor(related, device)
 
     def unregister(self, tensor):
         tid = id(tensor)

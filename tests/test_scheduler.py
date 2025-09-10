@@ -69,12 +69,16 @@ class TestScheduler(unittest.TestCase):
         self.assertEqual(main.Reporter.report('VRAM_used'), 0)
 
     def test_duplicate_registration_rejected(self):
-        device = main.MemoryDevice('VRAM', 256)
-        balancer = main.TensorLoadBalancer([device])
+        d1 = main.MemoryDevice('VRAM', 256)
+        d2 = main.MemoryDevice('cpu', 256)
+        balancer = main.TensorLoadBalancer([d1, d2])
         tensor = DummyTensor(64, 'VRAM')
         balancer.register(tensor)
-        with self.assertRaises(ValueError):
-            balancer.register(tensor)
+        tensor.device = 'cpu'
+        balancer.register(tensor)
+        registered_device = balancer._registry[id(tensor)]['device'].name
+        print('Device after reregister:', registered_device)
+        self.assertEqual(registered_device, 'cpu')
 
     def test_tensor_auto_registration(self):
         device = main.MemoryDevice('cpu', 256)
