@@ -60,7 +60,8 @@ class Neuron:
         self.activation_threshold = (
             zero if activation_threshold is None else activation_threshold
         )
-        self.weight = zero if weight is None else weight
+        self.weight = 1.0 if weight is None else weight
+        self._weight_set = weight is not None
 
     def reset(self):
         """Reset all dynamic tensors to the configured zero value."""
@@ -80,7 +81,8 @@ class Neuron:
         self.prev_cumulative_loss = zero
         self.gate = zero
         self.activation_threshold = zero
-        self.weight = zero
+        self.weight = 1.0
+        self._weight_set = False
 
     def update_reset_state(self, tensor):
         self.reset_state = tensor
@@ -111,6 +113,7 @@ class Neuron:
 
     def update_weight(self, tensor, reporter=None):
         self.weight = tensor
+        self._weight_set = True
         reporter = reporter or self._reporter
         if reporter is not None:
             reporter.report(
@@ -251,7 +254,8 @@ class Synapse:
         self.activation = zero if activation is None else activation
         self.lambda_e = zero if lambda_e is None else lambda_e
         self.c_e = zero if c_e is None else c_e
-        self.weight = zero if weight is None else weight
+        self.weight = 1.0 if weight is None else weight
+        self._weight_set = weight is not None
 
     def reset(self):
         zero = self._zero
@@ -259,7 +263,8 @@ class Synapse:
         self.activation = zero
         self.lambda_e = zero
         self.c_e = zero
-        self.weight = zero
+        self.weight = 1.0
+        self._weight_set = False
 
     def update_preactivation(self, tensor):
         self.preactivation = tensor
@@ -275,6 +280,7 @@ class Synapse:
 
     def update_weight(self, tensor, reporter=None):
         self.weight = tensor
+        self._weight_set = True
         reporter = reporter or self._reporter
         if reporter is not None:
             reporter.report(

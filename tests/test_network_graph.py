@@ -31,10 +31,16 @@ class TestNetworkGraph(unittest.TestCase):
         zero = torch.tensor(0)
         neuron = Neuron(zero=zero)
         synapse = Synapse(zero=zero)
-        for value in neuron.to_dict().values():
-            self.assertTrue(torch.equal(value, zero))
-        for value in synapse.to_dict().values():
-            self.assertTrue(torch.equal(value, zero))
+        for key, value in neuron.to_dict().items():
+            if key == "weight":
+                self.assertEqual(value, 1.0)
+            else:
+                self.assertTrue(torch.equal(value, zero))
+        for key, value in synapse.to_dict().items():
+            if key == "weight":
+                self.assertEqual(value, 1.0)
+            else:
+                self.assertTrue(torch.equal(value, zero))
 
 
 if __name__ == '__main__':

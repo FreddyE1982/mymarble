@@ -316,11 +316,14 @@ class Graph:
                 neuron = sampled[i]
                 neuron_sequence.append(neuron)
                 base_loss = getattr(neuron, "last_local_loss", 0)
-                weight = getattr(neuron, "weight", 0)
-                combined = base_loss * weight
+                if not getattr(neuron, "_weight_set", False):
+                    raise ValueError("Neuron missing explicit weight assignment")
+                combined = base_loss * neuron.weight
                 if i > 0:
                     synapse = sampled[i - 1]
-                    combined = combined * getattr(synapse, "weight", 0)
+                    if not getattr(synapse, "_weight_set", False):
+                        raise ValueError("Synapse missing explicit weight assignment")
+                    combined = combined * synapse.weight
                 step_losses.append(combined)
             telemetry = self._path_forwarder.run(neuron_sequence, step_losses)
         if self._reporter is not None:
