@@ -201,6 +201,7 @@ class Neuron:
             "timestamp": self.timestamp,
             "measured_time": self.measured_time,
             "loss_decrease_speed": self.loss_decrease_speed,
+            "prev_cumulative_loss": self.prev_cumulative_loss,
             "gate": self.gate,
             "activation_threshold": self.activation_threshold,
         }
