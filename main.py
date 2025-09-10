@@ -402,8 +402,14 @@ class TensorLoadBalancer(Scheduler):
             if new_name == 'disk':
                 path = os.path.join(self._storage_dir, f"{id(tensor)}.pt")
                 torch.save(tensor, path)
-                tensor.device = 'disk'
+                tensor.data = torch.empty(0, dtype=tensor.dtype)
                 meta['path'] = path
+                count = Reporter.report('disk_writes') or 0
+                Reporter.report(
+                    'disk_writes',
+                    'Number of tensor migrations to disk',
+                    count + 1,
+                )
             else:
                 if old_name == 'disk' and 'path' in meta:
                     path = meta.pop('path')
@@ -413,6 +419,12 @@ class TensorLoadBalancer(Scheduler):
                         os.remove(path)
                     except OSError:
                         pass
+                    count = Reporter.report('disk_reads') or 0
+                    Reporter.report(
+                        'disk_reads',
+                        'Number of tensors restored from disk',
+                        count + 1,
+                    )
                 else:
                     tensor.data = tensor.data.to(new_name)
                 try:
@@ -426,6 +438,12 @@ class TensorLoadBalancer(Scheduler):
                     pickle.dump(tensor, f)
                 tensor.device = 'disk'
                 meta['path'] = path
+                count = Reporter.report('disk_writes') or 0
+                Reporter.report(
+                    'disk_writes',
+                    'Number of tensor migrations to disk',
+                    count + 1,
+                )
             else:
                 if old_name == 'disk' and 'path' in meta:
                     path = meta.pop('path')
@@ -433,6 +451,12 @@ class TensorLoadBalancer(Scheduler):
                         os.remove(path)
                     except OSError:
                         pass
+                    count = Reporter.report('disk_reads') or 0
+                    Reporter.report(
+                        'disk_reads',
+                        'Number of tensors restored from disk',
+                        count + 1,
+                    )
                 tensor.device = new_name
 
     def _move_tensor(self, tensor, device):
