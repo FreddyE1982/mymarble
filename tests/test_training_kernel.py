@@ -62,6 +62,25 @@ class TestTrainingKernel(unittest.TestCase):
         self.assertIsNotNone(Reporter.report(f"neuron_{id(n1)}_cumulative_loss"))
         self.assertEqual(Reporter.report("training_iterations"), 1)
 
+    def test_iteration_uses_sample_for_losses(self):
+        g, n1, n2, s = self._build_graph()
+        def loss_fn(neuron, x):
+            return x
+        def cost_fn(syn, x):
+            return x
+        n1.loss_fn = loss_fn
+        n2.loss_fn = loss_fn
+        s.cost_fn = cost_fn
+        bp = Backpropagator(reporter=Reporter)
+        telemetry = TelemetryUpdater(reporter=Reporter)
+        trainer = TrainingKernel(g, bp, telemetry, reporter=Reporter)
+        sample = torch.tensor(3.0)
+        trainer.run_iteration(sample=sample, lr_v=torch.tensor(0.0), lr_e=torch.tensor(0.0))
+        print("Sample-based loss n1:", n1.last_local_loss)
+        print("Sample-based cost s:", s.c_e)
+        self.assertAlmostEqual(n1.last_local_loss.item(), 3.0)
+        self.assertAlmostEqual(s.c_e.item(), 3.0)
+
 
 if __name__ == "__main__":
     unittest.main()

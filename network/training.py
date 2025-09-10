@@ -37,6 +37,7 @@ class TrainingKernel:
 
     def run_iteration(
         self,
+        sample=None,
         routing_mode="hard",
         cost_params=None,
         sample_params=None,
@@ -54,6 +55,8 @@ class TrainingKernel:
 
         Parameters
         ----------
+        sample : object, optional
+            Training sample forwarded through :meth:`graph.forward`.
         routing_mode : {"hard", "soft"}, optional
             Determines whether routing is restricted to the chosen path or
             weighted across the entire graph.
@@ -82,6 +85,8 @@ class TrainingKernel:
 
         method = "soft" if routing_mode == "soft" else "exact"
         forward_kwargs = {"method": method}
+        if sample is not None:
+            forward_kwargs["sample"] = sample
         if cost_params is not None:
             forward_kwargs["cost_params"] = cost_params
         if sample_params is not None:

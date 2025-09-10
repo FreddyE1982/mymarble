@@ -116,6 +116,46 @@ class TestGraphForward(unittest.TestCase):
             Reporter.report(f"synapse_{id(s1)}_weight").item(), 4.0
         )
 
+    def test_forward_computes_sample_losses_and_costs(self):
+        torch.manual_seed(0)
+        zero = torch.tensor(0.0)
+        sample = torch.tensor(5.0)
+        Reporter._metrics = {}
+        n1 = Neuron(zero=zero)
+        n2 = Neuron(zero=zero)
+        n1.phi_v = torch.tensor(1.0)
+        n2.phi_v = torch.tensor(-10.0)
+        n1.update_weight(torch.tensor(1.0))
+        n2.update_weight(torch.tensor(1.0))
+        s1 = Synapse(zero=zero)
+        s1.update_weight(torch.tensor(1.0))
+
+        def loss_fn1(self, x):
+            return x + torch.tensor(1.0)
+
+        def loss_fn2(self, x):
+            return x * torch.tensor(2.0)
+
+        def cost_fn(self, x):
+            return x * torch.tensor(0.5)
+
+        n1.loss_fn = loss_fn1
+        n2.loss_fn = loss_fn2
+        s1.cost_fn = cost_fn
+
+        g = Graph(reporter=Reporter)
+        g.add_neuron("n1", n1)
+        g.add_neuron("n2", n2)
+        g.add_synapse("s1", "n1", "n2", s1)
+        g.forward(sample=sample, method="exact")
+
+        print("Sample loss n1:", n1.last_local_loss)
+        print("Sample loss n2:", n2.last_local_loss)
+        print("Sample cost s1:", s1.c_e)
+        self.assertAlmostEqual(n1.last_local_loss.item(), 6.0)
+        self.assertAlmostEqual(n2.last_local_loss.item(), 10.0)
+        self.assertAlmostEqual(s1.c_e.item(), 2.5)
+
     def test_forward_requires_weights(self):
         zero = torch.tensor(0.0)
         n1 = Neuron(zero=zero)
