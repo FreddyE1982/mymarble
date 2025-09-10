@@ -12,11 +12,15 @@ graph.
 class Graph:
     """A directed multigraph of neurons and synapses."""
 
-    def __init__(self):
+    def __init__(self, path_selector=None):
         self.neurons = {}
         self.synapses = {}
         self._outgoing = {}
         self._incoming = {}
+        if path_selector is None:
+            from .path_selector import PathSelector  # local import to avoid module level dependency
+            path_selector = PathSelector()
+        self._path_selector = path_selector
 
     def add_neuron(self, neuron_id, neuron):
         """Add a neuron to the graph."""
@@ -90,3 +94,36 @@ class Graph:
         for sids in ins.values():
             for sid in sids:
                 yield sid
+
+    def forward(self, global_loss_target, activations=None):
+        """Select paths for all neurons using the configured PathSelector.
+
+        Parameters
+        ----------
+        global_loss_target : object
+            Target loss used by the scoring function.
+        activations : dict, optional
+            Optional mapping ``{neuron_id: activation_state}`` supplying
+            additional per-neuron activation tensors.
+
+        Returns
+        -------
+        dict
+            Mapping of neuron identifiers to the selected outgoing synapse or
+            ``None`` if a neuron has no outgoing synapses.
+        """
+        selections = {}
+        if activations is None:
+            activations = {}
+        for nid, neuron in self.neurons.items():
+            outgoing_ids = []
+            for sids in self._outgoing.get(nid, {}).values():
+                outgoing_ids.extend(sids)
+            synapses = [self.synapses[sid][2] for sid in outgoing_ids]
+            state = {
+                "outgoing_synapses": synapses,
+                "activation_tensors": activations.get(nid, {}),
+                "global_loss_target": global_loss_target,
+            }
+            selections[nid] = self._path_selector.select_path(neuron, state)
+        return selections
