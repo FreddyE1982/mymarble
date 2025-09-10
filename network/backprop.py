@@ -91,20 +91,35 @@ class Backpropagator:
 
         g_v = gates.get("g_v", {})
         g_e = gates.get("g_e", {})
-        zero = torch.tensor(0.0)
-        loss = zero
+        loss = None
         for nid, neuron in graph.neurons.items():
-            gate = g_v.get(nid, zero)
-            l_v = getattr(neuron, "last_local_loss", zero)
-            if not hasattr(l_v, "shape"):
-                l_v = torch.tensor(l_v)
-            loss = loss + gate * l_v
+            gate = g_v.get(nid)
+            l_v = getattr(neuron, "last_local_loss", 0.0)
+            if gate is None:
+                gate = (
+                    torch.zeros_like(l_v)
+                    if torch.is_tensor(l_v)
+                    else torch.tensor(0.0)
+                )
+            if not torch.is_tensor(l_v):
+                l_v = torch.tensor(l_v, device=gate.device, dtype=gate.dtype)
+            term = gate * l_v
+            loss = term if loss is None else loss + term
         for sid, (_, _, synapse) in graph.synapses.items():
-            gate = g_e.get(sid, zero)
-            c_e = getattr(synapse, "c_e", zero)
-            if not hasattr(c_e, "shape"):
-                c_e = torch.tensor(c_e)
-            loss = loss + gate * c_e
+            gate = g_e.get(sid)
+            c_e = getattr(synapse, "c_e", 0.0)
+            if gate is None:
+                gate = (
+                    torch.zeros_like(c_e)
+                    if torch.is_tensor(c_e)
+                    else torch.tensor(0.0)
+                )
+            if not torch.is_tensor(c_e):
+                c_e = torch.tensor(c_e, device=gate.device, dtype=gate.dtype)
+            term = gate * c_e
+            loss = term if loss is None else loss + term
+        if loss is None:
+            loss = torch.tensor(0.0)
         if self._reporter is not None:
             self._reporter.report(
                 "sample_loss",
@@ -161,23 +176,27 @@ class Backpropagator:
             l_v = getattr(neuron, "last_local_loss", zero)
             lam = getattr(neuron, "lambda_v", zero)
 
-            dC_dy = torch.autograd.grad(
-                loss,
-                l_v,
-                grad_outputs=torch.ones_like(loss),
-                retain_graph=True,
-                allow_unused=True,
-            )[0]
-            if dC_dy is None:
+            if loss.requires_grad:
+                dC_dy = torch.autograd.grad(
+                    loss,
+                    l_v,
+                    grad_outputs=torch.ones_like(loss),
+                    retain_graph=True,
+                    allow_unused=True,
+                )[0]
+                if dC_dy is None:
+                    dC_dy = torch.zeros_like(l_v)
+                dC_dw = torch.autograd.grad(
+                    l_v,
+                    w_v,
+                    grad_outputs=dC_dy,
+                    retain_graph=True,
+                    allow_unused=True,
+                )[0]
+                if dC_dw is None:
+                    dC_dw = torch.zeros_like(w_v)
+            else:
                 dC_dy = torch.zeros_like(l_v)
-            dC_dw = torch.autograd.grad(
-                l_v,
-                w_v,
-                grad_outputs=dC_dy,
-                retain_graph=True,
-                allow_unused=True,
-            )[0]
-            if dC_dw is None:
                 dC_dw = torch.zeros_like(w_v)
             first_term = dC_dw
 
@@ -222,23 +241,27 @@ class Backpropagator:
             c_e = getattr(synapse, "c_e", zero)
             lam = getattr(synapse, "lambda_e", zero)
 
-            dC_dy = torch.autograd.grad(
-                loss,
-                c_e,
-                grad_outputs=torch.ones_like(loss),
-                retain_graph=True,
-                allow_unused=True,
-            )[0]
-            if dC_dy is None:
+            if loss.requires_grad:
+                dC_dy = torch.autograd.grad(
+                    loss,
+                    c_e,
+                    grad_outputs=torch.ones_like(loss),
+                    retain_graph=True,
+                    allow_unused=True,
+                )[0]
+                if dC_dy is None:
+                    dC_dy = torch.zeros_like(c_e)
+                dC_dw = torch.autograd.grad(
+                    c_e,
+                    w_e,
+                    grad_outputs=dC_dy,
+                    retain_graph=True,
+                    allow_unused=True,
+                )[0]
+                if dC_dw is None:
+                    dC_dw = torch.zeros_like(w_e)
+            else:
                 dC_dy = torch.zeros_like(c_e)
-            dC_dw = torch.autograd.grad(
-                c_e,
-                w_e,
-                grad_outputs=dC_dy,
-                retain_graph=True,
-                allow_unused=True,
-            )[0]
-            if dC_dw is None:
                 dC_dw = torch.zeros_like(w_e)
             first_term = dC_dw
 

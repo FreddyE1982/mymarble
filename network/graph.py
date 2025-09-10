@@ -259,19 +259,21 @@ class Graph:
                         syn_map[sid] = synapse
                     backup = self._latency_estimator.peek(nid, neuron, syn_map)
                     backups.append((neuron, syn_map, backup))
-            cost = self._path_cost.compute_cost(
-                p,
-                cost_defaults["lambda_0"],
-                cost_defaults["lambda_max"],
-                cost_defaults["alpha"],
-                cost_defaults["beta"],
-                cost_defaults["T_heat"],
-            )
-            latency = self._aggregate_latency(p)
-            evaluated.append((p, cost, latency))
-            if self._latency_estimator is not None:
-                for neuron, syn_map, backup in backups:
-                    self._latency_estimator.restore(neuron, syn_map, backup)
+            try:
+                cost = self._path_cost.compute_cost(
+                    p,
+                    cost_defaults["lambda_0"],
+                    cost_defaults["lambda_max"],
+                    cost_defaults["alpha"],
+                    cost_defaults["beta"],
+                    cost_defaults["T_heat"],
+                )
+                latency = self._aggregate_latency(p)
+                evaluated.append((p, cost, latency))
+            finally:
+                if self._latency_estimator is not None:
+                    for neuron, syn_map, backup in backups:
+                        self._latency_estimator.restore(neuron, syn_map, backup)
         sequences = [(p, c) for p, c, _ in evaluated]
         if method == "soft":
             best, sampled = self._path_selector.select_soft(
