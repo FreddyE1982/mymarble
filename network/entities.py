@@ -33,11 +33,13 @@ class Neuron:
         prev_cumulative_loss=None,
         gate=None,
         activation_threshold=None,
+        reporter=None,
         zero=None,
     ):
         if zero is None:
             zero = 0
         self._zero = zero
+        self._reporter = reporter
         self.reset_state = zero if reset_state is None else reset_state
         self.payload = zero if payload is None else payload
         self.activation = zero if activation is None else activation
@@ -113,8 +115,10 @@ class Neuron:
             Loss value to record for the current step.
         reporter : object, optional
             Instance providing a ``report`` method. Metrics are written to this
-            reporter when supplied.
+            reporter when supplied. If omitted, the reporter provided during
+            construction is used.
         """
+        reporter = reporter or self._reporter
         detached_loss = (
             loss_tensor.detach() if hasattr(loss_tensor, "detach") else loss_tensor
         )
@@ -148,12 +152,14 @@ class Neuron:
             Observed time :math:`s_n` at which the activation was measured.
         reporter : object, optional
             Instance providing a ``report`` method. Metrics are written to this
-            reporter when supplied.
+            reporter when supplied. If omitted, the reporter provided during
+            construction is used.
 
         The loss decrease speed :math:`r_n` is calculated according to
         Eq. (0.1) using the previously recorded timestamp as
         :math:`t_{k-1}`.  Metrics are reported via the optional ``reporter``.
         """
+        reporter = reporter or self._reporter
         prev_timestamp = self.timestamp
         prev_cumulative = self.prev_cumulative_loss
         time_delta = measured_time_tensor - prev_timestamp
