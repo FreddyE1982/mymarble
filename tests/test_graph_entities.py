@@ -68,6 +68,22 @@ class TestGraphEntities(unittest.TestCase):
         self.assertIn("step_loss", snapshot)
         self.assertIn("cumulative_loss", snapshot)
 
+    def test_activation_recording(self):
+        n = Neuron(zero=self.zero)
+        n.update_cumulative_loss(torch.tensor(1.0))
+        n.record_activation(torch.tensor(1.0), torch.tensor(2.0))
+        self.assertAlmostEqual(n.timestamp.item(), 1.0)
+        self.assertAlmostEqual(n.measured_time.item(), 2.0)
+        speed_metric = main.Reporter.report(f"neuron_{id(n)}_loss_decrease_speed")
+        print("Recorded loss decrease speed:", speed_metric)
+        self.assertAlmostEqual(speed_metric.item(), 0.5)
+        self.assertAlmostEqual(n.loss_decrease_speed.item(), 0.5)
+        snapshot = n.to_dict()
+        print("Activation snapshot:", snapshot)
+        self.assertIn("timestamp", snapshot)
+        self.assertIn("measured_time", snapshot)
+        self.assertIn("loss_decrease_speed", snapshot)
+
 
 if __name__ == "__main__":
     unittest.main()

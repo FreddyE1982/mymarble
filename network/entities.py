@@ -27,6 +27,9 @@ class Neuron:
         lambda_v=None,
         cumulative_loss=None,
         step_loss=None,
+        timestamp=None,
+        measured_time=None,
+        loss_decrease_speed=None,
         zero=None,
     ):
         if zero is None:
@@ -41,6 +44,9 @@ class Neuron:
         self.lambda_v = zero if lambda_v is None else lambda_v
         self.cumulative_loss = zero if cumulative_loss is None else cumulative_loss
         self.step_loss = zero if step_loss is None else step_loss
+        self.timestamp = zero if timestamp is None else timestamp
+        self.measured_time = zero if measured_time is None else measured_time
+        self.loss_decrease_speed = zero if loss_decrease_speed is None else loss_decrease_speed
 
     def reset(self):
         """Reset all dynamic tensors to the configured zero value."""
@@ -54,6 +60,9 @@ class Neuron:
         self.lambda_v = zero
         self.cumulative_loss = zero
         self.step_loss = zero
+        self.timestamp = zero
+        self.measured_time = zero
+        self.loss_decrease_speed = zero
 
     def update_reset_state(self, tensor):
         self.reset_state = tensor
@@ -93,6 +102,55 @@ class Neuron:
             self.cumulative_loss,
         )
 
+    def record_activation(self, time_tensor, measured_time_tensor):
+        """Record an activation event and update timing metrics.
+
+        Parameters
+        ----------
+        time_tensor : object
+            Expected timestamp of the activation :math:`\tau_n`.
+        measured_time_tensor : object
+            Observed time :math:`s_n` at which the activation was measured.
+
+        The loss decrease speed :math:`r_n` is calculated according to
+        Eq. (0.1) using the previously recorded timestamp as
+        :math:`t_{k-1}`.  Metrics are reported via :class:`main.Reporter`.
+        """
+        prev_timestamp = self.timestamp
+        prev_cumulative = (
+            self.cumulative_loss - self.step_loss
+            if hasattr(self, "step_loss")
+            else self._zero
+        )
+        time_delta = measured_time_tensor - prev_timestamp
+        time_delta = time_delta.detach() if hasattr(time_delta, "detach") else time_delta
+        loss_delta = self.cumulative_loss - prev_cumulative
+        loss_delta = loss_delta.detach() if hasattr(loss_delta, "detach") else loss_delta
+        if hasattr(time_delta, "item"):
+            zero_time = time_delta.item() == 0
+        else:
+            zero_time = time_delta == 0
+        speed = self._zero if zero_time else loss_delta / time_delta
+        self.loss_decrease_speed = speed
+        self.timestamp = time_tensor
+        self.measured_time = measured_time_tensor
+        from main import Reporter  # local import
+        Reporter.report(
+            f"neuron_{id(self)}_step_loss",
+            "Loss recorded for neuron at current step",
+            self.step_loss,
+        )
+        Reporter.report(
+            f"neuron_{id(self)}_cumulative_loss",
+            "Cumulative loss recorded for neuron",
+            self.cumulative_loss,
+        )
+        Reporter.report(
+            f"neuron_{id(self)}_loss_decrease_speed",
+            "Loss decrease speed for neuron",
+            self.loss_decrease_speed,
+        )
+
     def to_dict(self):
         """Return a dictionary snapshot of the neuron state."""
         return {
@@ -105,6 +163,9 @@ class Neuron:
             "lambda_v": self.lambda_v,
             "cumulative_loss": self.cumulative_loss,
             "step_loss": self.step_loss,
+            "timestamp": self.timestamp,
+            "measured_time": self.measured_time,
+            "loss_decrease_speed": self.loss_decrease_speed,
         }
 
 
