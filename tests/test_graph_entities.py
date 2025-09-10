@@ -41,8 +41,8 @@ class TestGraphEntities(unittest.TestCase):
         self.assertIn("activation", snapshot)
 
     def test_cumulative_loss_tracking(self):
-        n = Neuron(zero=self.zero)
-        n.update_cumulative_loss(torch.tensor(1.5), reporter=main.Reporter)
+        n = Neuron(zero=self.zero, reporter=main.Reporter)
+        n.update_cumulative_loss(torch.tensor(1.5))
         self.assertAlmostEqual(n.step_loss.item(), 1.5)
         self.assertAlmostEqual(n.cumulative_loss.item(), 1.5)
         step_metric = main.Reporter.report(f"neuron_{id(n)}_step_loss")
@@ -51,7 +51,7 @@ class TestGraphEntities(unittest.TestCase):
         print("Recorded cumulative loss:", cum_metric)
         self.assertAlmostEqual(step_metric.item(), 1.5)
         self.assertAlmostEqual(cum_metric.item(), 1.5)
-        n.update_cumulative_loss(torch.tensor(2.0), reporter=main.Reporter)
+        n.update_cumulative_loss(torch.tensor(2.0))
         self.assertAlmostEqual(n.step_loss.item(), 2.0)
         self.assertAlmostEqual(n.cumulative_loss.item(), 3.5)
         step_metric = main.Reporter.report(f"neuron_{id(n)}_step_loss")
@@ -69,11 +69,9 @@ class TestGraphEntities(unittest.TestCase):
         self.assertIn("cumulative_loss", snapshot)
 
     def test_activation_recording(self):
-        n = Neuron(zero=self.zero)
-        n.update_cumulative_loss(torch.tensor(1.0), reporter=main.Reporter)
-        n.record_activation(
-            torch.tensor(1.0), torch.tensor(2.0), reporter=main.Reporter
-        )
+        n = Neuron(zero=self.zero, reporter=main.Reporter)
+        n.update_cumulative_loss(torch.tensor(1.0))
+        n.record_activation(torch.tensor(1.0), torch.tensor(2.0))
         self.assertAlmostEqual(n.timestamp.item(), 1.0)
         self.assertAlmostEqual(n.measured_time.item(), 2.0)
         speed_metric = main.Reporter.report(f"neuron_{id(n)}_loss_decrease_speed")
@@ -87,16 +85,14 @@ class TestGraphEntities(unittest.TestCase):
         self.assertIn("loss_decrease_speed", snapshot)
 
     def test_loss_speed_accumulates_multiple_steps(self):
-        n = Neuron(zero=self.zero)
+        n = Neuron(zero=self.zero, reporter=main.Reporter)
         # establish initial activation so that previous timestamp and cumulative
         # loss are persisted
-        n.record_activation(self.zero, self.zero, reporter=main.Reporter)
+        n.record_activation(self.zero, self.zero)
         # simulate two loss updates prior to the next activation
-        n.update_cumulative_loss(torch.tensor(1.0), reporter=main.Reporter)
-        n.update_cumulative_loss(torch.tensor(2.0), reporter=main.Reporter)
-        n.record_activation(
-            torch.tensor(3.0), torch.tensor(3.0), reporter=main.Reporter
-        )
+        n.update_cumulative_loss(torch.tensor(1.0))
+        n.update_cumulative_loss(torch.tensor(2.0))
+        n.record_activation(torch.tensor(3.0), torch.tensor(3.0))
         expected_speed = (1.0 + 2.0) / 3.0
         speed_metric = main.Reporter.report(
             f"neuron_{id(n)}_loss_decrease_speed"
