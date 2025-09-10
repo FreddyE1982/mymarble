@@ -67,9 +67,14 @@ class TestPoTEDEndToEnd(unittest.TestCase):
         self.assertTrue(np.array_equal(result, np_array))
 
     def test_roundtrip_torch_tensor(self):
-        torch_tensor = torch.tensor([1, 2, 3])
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        torch_tensor = torch.tensor(
+            [1.0, 2.0, 3.0], device=device, requires_grad=True
+        )
         result = self._roundtrip(torch_tensor)
         self.assertTrue(torch.equal(result, torch_tensor))
+        self.assertEqual(result.device, torch_tensor.device)
+        self.assertEqual(result.requires_grad, torch_tensor.requires_grad)
 
     @settings(max_examples=10)
     @given(json_strategy)
