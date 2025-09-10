@@ -107,6 +107,32 @@ class TestGraphEntities(unittest.TestCase):
             snapshot["prev_cumulative_loss"].item(), n.cumulative_loss.item()
         )
 
+    def test_weight_initialization_and_reset(self):
+        n = Neuron(zero=self.zero, reporter=main.Reporter)
+        s = Synapse(zero=self.zero, reporter=main.Reporter)
+        print("Initial neuron weight:", n.get_weight())
+        print("Initial synapse weight:", s.get_weight())
+        self.assertEqual(n.get_weight().item(), 0.0)
+        self.assertEqual(s.get_weight().item(), 0.0)
+        n.update_weight(torch.tensor(0.5))
+        s.update_weight(torch.tensor(0.8))
+        print("Updated neuron weight:", n.get_weight())
+        print("Updated synapse weight:", s.get_weight())
+        self.assertAlmostEqual(n.get_weight().item(), 0.5)
+        self.assertAlmostEqual(s.get_weight().item(), 0.8)
+        metric_n = main.Reporter.report(f"neuron_{id(n)}_weight")
+        metric_s = main.Reporter.report(f"synapse_{id(s)}_weight")
+        print("Reporter neuron weight:", metric_n)
+        print("Reporter synapse weight:", metric_s)
+        self.assertAlmostEqual(metric_n.item(), 0.5)
+        self.assertAlmostEqual(metric_s.item(), 0.8)
+        n.reset()
+        s.reset()
+        print("Reset neuron weight:", n.get_weight())
+        print("Reset synapse weight:", s.get_weight())
+        self.assertEqual(n.get_weight().item(), 0.0)
+        self.assertEqual(s.get_weight().item(), 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()

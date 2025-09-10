@@ -33,6 +33,7 @@ class Neuron:
         prev_cumulative_loss=None,
         gate=None,
         activation_threshold=None,
+        weight=None,
         reporter=None,
         zero=None,
     ):
@@ -59,6 +60,7 @@ class Neuron:
         self.activation_threshold = (
             zero if activation_threshold is None else activation_threshold
         )
+        self.weight = zero if weight is None else weight
 
     def reset(self):
         """Reset all dynamic tensors to the configured zero value."""
@@ -78,6 +80,7 @@ class Neuron:
         self.prev_cumulative_loss = zero
         self.gate = zero
         self.activation_threshold = zero
+        self.weight = zero
 
     def update_reset_state(self, tensor):
         self.reset_state = tensor
@@ -105,6 +108,19 @@ class Neuron:
 
     def update_activation_threshold(self, tensor):
         self.activation_threshold = tensor
+
+    def update_weight(self, tensor, reporter=None):
+        self.weight = tensor
+        reporter = reporter or self._reporter
+        if reporter is not None:
+            reporter.report(
+                f"neuron_{id(self)}_weight",
+                "Trainable weight for neuron",
+                self.weight,
+            )
+
+    def get_weight(self):
+        return self.weight
 
     def update_cumulative_loss(self, loss_tensor, reporter=None):
         """Add ``loss_tensor`` to the neuron's cumulative loss.
@@ -210,6 +226,7 @@ class Neuron:
             "prev_cumulative_loss": self.prev_cumulative_loss,
             "gate": self.gate,
             "activation_threshold": self.activation_threshold,
+            "weight": self.weight,
         }
 
 
@@ -222,15 +239,19 @@ class Synapse:
         activation=None,
         lambda_e=None,
         c_e=None,
+        weight=None,
+        reporter=None,
         zero=None,
     ):
         if zero is None:
             zero = 0
         self._zero = zero
+        self._reporter = reporter
         self.preactivation = zero if preactivation is None else preactivation
         self.activation = zero if activation is None else activation
         self.lambda_e = zero if lambda_e is None else lambda_e
         self.c_e = zero if c_e is None else c_e
+        self.weight = zero if weight is None else weight
 
     def reset(self):
         zero = self._zero
@@ -238,6 +259,7 @@ class Synapse:
         self.activation = zero
         self.lambda_e = zero
         self.c_e = zero
+        self.weight = zero
 
     def update_preactivation(self, tensor):
         self.preactivation = tensor
@@ -251,10 +273,24 @@ class Synapse:
     def update_cost(self, tensor):
         self.c_e = tensor
 
+    def update_weight(self, tensor, reporter=None):
+        self.weight = tensor
+        reporter = reporter or self._reporter
+        if reporter is not None:
+            reporter.report(
+                f"synapse_{id(self)}_weight",
+                "Trainable weight for synapse",
+                self.weight,
+            )
+
+    def get_weight(self):
+        return self.weight
+
     def to_dict(self):
         return {
             "preactivation": self.preactivation,
             "activation": self.activation,
             "lambda_e": self.lambda_e,
             "c_e": self.c_e,
+            "weight": self.weight,
         }

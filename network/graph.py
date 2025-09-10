@@ -310,8 +310,18 @@ class Graph:
                     syn_map[sid] = synapse
                 self._latency_estimator.update(nid, neuron, syn_map)
         if sampled and self._path_forwarder is not None:
-            neuron_sequence = [sampled[i] for i in range(0, len(sampled), 2)]
-            step_losses = [getattr(n, "last_local_loss", 0) for n in neuron_sequence]
+            neuron_sequence = []
+            step_losses = []
+            for i in range(0, len(sampled), 2):
+                neuron = sampled[i]
+                neuron_sequence.append(neuron)
+                base_loss = getattr(neuron, "last_local_loss", 0)
+                weight = getattr(neuron, "weight", 0)
+                combined = base_loss * weight
+                if i > 0:
+                    synapse = sampled[i - 1]
+                    combined = combined * getattr(synapse, "weight", 0)
+                step_losses.append(combined)
             telemetry = self._path_forwarder.run(neuron_sequence, step_losses)
         if self._reporter is not None:
             self._reporter.report(
