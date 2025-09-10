@@ -29,16 +29,23 @@ class TestGraphForward(unittest.TestCase):
         g.add_neuron("n1", n1)
         g.add_neuron("n2", n2)
         g.add_synapse("s1", "n1", "n2", s1)
-        path = g.forward(
+        result = g.forward(
             method="exact",
             cost_params={"lambda_0": 0, "lambda_max": 1, "alpha": 1, "beta": 1, "T_heat": 1},
         )
+        path = result["path"]
         self.assertEqual(path[0], n1)
         self.assertEqual(path[1], s1)
         self.assertEqual(path[2], n2)
+        print("Returned path_time:", result.get("path_time"))
+        print("Returned final loss:", result.get("final_cumulative_loss"))
+        self.assertIn("path_time", result)
+        self.assertIn("final_cumulative_loss", result)
         self.assertEqual(Reporter.report("entry_id"), "n1")
         self.assertEqual(Reporter.report("path_id"), 0)
         self.assertIsNotNone(Reporter.report("path_cost"))
+        self.assertIsNotNone(Reporter.report("path_time"))
+        self.assertIsNotNone(Reporter.report("final_cumulative_loss"))
 
 
 if __name__ == "__main__":
