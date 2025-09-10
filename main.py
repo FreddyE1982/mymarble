@@ -1,3 +1,6 @@
+import os
+import pickle
+import tempfile
 import torch
 import types
 from network.entities import Neuron, Synapse
@@ -312,9 +315,11 @@ class Scheduler:
 
 
 class TensorLoadBalancer(Scheduler):
-    def __init__(self, devices):
+    def __init__(self, devices, storage_dir=None):
         super().__init__(devices)
         self._registry = {}
+        self._device_order = list(self.devices.values())
+        self._storage_dir = storage_dir or tempfile.mkdtemp(prefix="tensor_lb_")
 
     def register(self, tensor):
         tid = id(tensor)
@@ -339,9 +344,28 @@ class TensorLoadBalancer(Scheduler):
                 self._move_tensor(tensor, device)
                 self._ensure_group_device(tensor, device)
             return self._registry[tid]['block']
-        block = device.allocate(size)
-        self._registry[tid] = {'device': device, 'block': block, 'size': size}
+        try:
+            block = device.allocate(size)
+        except (DeviceBudgetExceeded, DeviceCapacityExceeded):
+            fallback = None
+            for alt in self._device_order:
+                if alt == device:
+                    continue
+                try:
+                    block = alt.allocate(size)
+                    fallback = alt
+                    break
+                except (DeviceBudgetExceeded, DeviceCapacityExceeded):
+                    continue
+            if fallback is None:
+                raise
+            device = fallback
+            count = Reporter.report('device_fallbacks') or 0
+            Reporter.report('device_fallbacks', 'Number of automatic device fallbacks', count + 1)
+        meta = {'device': device, 'block': block, 'size': size}
+        self._registry[tid] = meta
         Reporter.report('registered_tensors', 'Number of tensors currently registered', len(self._registry))
+        self._perform_device_transfer(tensor, device, meta, old_device=dev_key)
         self._ensure_group_device(tensor, device)
         return block
 
@@ -365,6 +389,52 @@ class TensorLoadBalancer(Scheduler):
                 stack.append(nxt)
         return related
 
+    def _perform_device_transfer(self, tensor, new_device, meta, old_device=None):
+        old_name = None
+        if isinstance(old_device, MemoryDevice):
+            old_name = old_device.name
+        elif isinstance(old_device, str):
+            old_name = old_device
+        elif old_device is not None:
+            old_name = str(old_device)
+        new_name = new_device.name if isinstance(new_device, MemoryDevice) else new_device
+        if hasattr(tensor, 'to') and torch.is_tensor(tensor):
+            if new_name == 'disk':
+                path = os.path.join(self._storage_dir, f"{id(tensor)}.pt")
+                torch.save(tensor, path)
+                tensor.device = 'disk'
+                meta['path'] = path
+            else:
+                if old_name == 'disk' and 'path' in meta:
+                    path = meta.pop('path')
+                    data = torch.load(path, map_location=new_name)
+                    tensor.data = data.data
+                    try:
+                        os.remove(path)
+                    except OSError:
+                        pass
+                else:
+                    tensor.data = tensor.data.to(new_name)
+                try:
+                    tensor.device = torch.device(new_name)
+                except Exception:
+                    pass
+        else:
+            if new_name == 'disk':
+                path = os.path.join(self._storage_dir, f"{id(tensor)}.bin")
+                with open(path, 'wb') as f:
+                    pickle.dump(tensor, f)
+                tensor.device = 'disk'
+                meta['path'] = path
+            else:
+                if old_name == 'disk' and 'path' in meta:
+                    path = meta.pop('path')
+                    try:
+                        os.remove(path)
+                    except OSError:
+                        pass
+                tensor.device = new_name
+
     def _move_tensor(self, tensor, device):
         tid = id(tensor)
         meta = self._registry[tid]
@@ -374,18 +444,13 @@ class TensorLoadBalancer(Scheduler):
             new_block = device.allocate(meta['size'])
         except Exception:
             raise
+        old_device = meta['device']
         meta['device'].free(meta['block'])
         meta['device'] = device
         meta['block'] = new_block
         count = Reporter.report('tensor_device_moves') or 0
         Reporter.report('tensor_device_moves', 'Number of tensor device migrations', count + 1)
-        if hasattr(tensor, 'to') and hasattr(tensor, 'data'):
-            try:
-                tensor.data = tensor.data.to(device.name if isinstance(device, MemoryDevice) else device)
-            except Exception:
-                tensor.device = device.name if isinstance(device, MemoryDevice) else device
-        else:
-            tensor.device = device.name if isinstance(device, MemoryDevice) else device
+        self._perform_device_transfer(tensor, device, meta, old_device=old_device)
 
     def _ensure_group_device(self, tensor, device):
         for related in self._collect_related_tensors(tensor):
@@ -398,6 +463,11 @@ class TensorLoadBalancer(Scheduler):
         if tid not in self._registry:
             raise KeyError('Tensor not registered')
         meta = self._registry.pop(tid)
+        if meta['device'].name == 'disk' and 'path' in meta:
+            try:
+                os.remove(meta['path'])
+            except OSError:
+                pass
         meta['device'].free(meta['block'])
         Reporter.report('registered_tensors', 'Number of tensors currently registered', len(self._registry))
 
