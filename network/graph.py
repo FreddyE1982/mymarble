@@ -398,6 +398,8 @@ class Graph:
                 threshold = getattr(neuron, "activation_threshold", None)
                 if threshold is None:
                     continue
+                if not hasattr(threshold, "grad") and not hasattr(threshold, "shape"):
+                    threshold = torch.as_tensor(threshold)
                 grad = getattr(threshold, "grad", None)
                 if grad is None:
                     grad = torch.zeros_like(threshold)
