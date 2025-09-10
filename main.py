@@ -346,7 +346,8 @@ class TensorLoadBalancer(Scheduler):
         return block
 
     def _collect_related_tensors(self, tensor):
-        related = set()
+        related = []
+        related_ids = set()
         seen = set()
         stack = [getattr(tensor, 'grad_fn', None)]
         while stack:
@@ -356,7 +357,10 @@ class TensorLoadBalancer(Scheduler):
             seen.add(fn)
             var = getattr(fn, 'variable', None)
             if var is not None and var is not tensor:
-                related.add(var)
+                vid = id(var)
+                if vid not in related_ids:
+                    related.append(var)
+                    related_ids.add(vid)
             for nxt, _ in getattr(fn, 'next_functions', []):
                 stack.append(nxt)
         return related
@@ -366,8 +370,11 @@ class TensorLoadBalancer(Scheduler):
         meta = self._registry[tid]
         if meta['device'] == device:
             return
+        try:
+            new_block = device.allocate(meta['size'])
+        except Exception:
+            raise
         meta['device'].free(meta['block'])
-        new_block = device.allocate(meta['size'])
         meta['device'] = device
         meta['block'] = new_block
         count = Reporter.report('tensor_device_moves') or 0
